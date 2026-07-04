@@ -9,20 +9,17 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * موتور OCR کاملاً آفلاین (بدون نیاز به اینترنت) برای خواندن متن نسخه، با Tesseract4Android.
+ * موتور OCR کاملاً آفلاین (بدون نیاز به اینترنت) برای خواندن متن فارسیِ عکسِ نسخه،
+ * با استفاده از کتابخانه Tesseract4Android.
  *
- * از ترکیب زبان فارسی + انگلیسی («fas+eng») استفاده می‌کنیم چون نسخه‌ها معمولاً اسم
- * برند دارو رو با حروف انگلیسی دارن (مثل Apotel) وسط یک خط فارسی؛ اگر فقط مدل فارسی
- * بارگذاری بشه، این کلمات انگلیسی رو اشتباه به اعداد/حروف فارسی تبدیل می‌کنه.
- *
- * نکته نصب: هر دو فایل fas.traineddata و eng.traineddata باید از قبل در مسیر
- * app/src/main/assets/tessdata/ قرار داده شده باشند (به دلیل حجم بالا، این فایل‌ها باید
- * دستی از مخزن رسمی tesseract-ocr/tessdata_fast دانلود و در پروژه کپی شوند).
+ * نکته مهم نصب: فایل زبان فارسی (fas.traineddata) باید از قبل در مسیر
+ * app/src/main/assets/tessdata/fas.traineddata قرار داده شده باشد (به دلیل حجم بالا،
+ * این فایل باید دستی از مخزن رسمی tesseract-ocr/tessdata دانلود و در پروژه کپی شود).
+ * اگر این فایل موجود نباشد، تابع زیر خطای مشخصی برمی‌گرداند تا کاربر بداند مشکل کجاست.
  */
 object PrescriptionOcrEngine {
 
-    private const val LANGUAGES = "fas+eng"
-    private val requiredFiles = listOf("fas.traineddata", "eng.traineddata")
+    private const val LANGUAGE = "fas" // کد زبان فارسی در Tesseract
 
     sealed class OcrResult {
         data class Success(val text: String) : OcrResult()
@@ -33,54 +30,42 @@ object PrescriptionOcrEngine {
     private fun tessDataDir(context: Context): File =
         File(context.filesDir, "tesseract")
 
-    /** فایل‌های زبان رو یک‌بار از assets به مسیر قابل‌خواندن توسط Tesseract کپی می‌کند */
+    /** فایل زبان را یک‌بار از assets به مسیر قابل‌خواندن توسط Tesseract کپی می‌کند */
     private fun ensureLanguageDataCopied(context: Context): Boolean {
-        val tessdataSubDir = File(tessDataDir(context), "tessdata")
+        val dir = tessDataDir(context)
+        val tessdataSubDir = File(dir, "tessdata")
         if (!tessdataSubDir.exists()) tessdataSubDir.mkdirs()
+        val target = File(tessdataSubDir, "$LANGUAGE.traineddata")
+        if (target.exists() && target.length() > 0) return true
 
-        var allOk = true
-        for (fileName in requiredFiles) {
-            val target = File(tessdataSubDir, fileName)
-            if (target.exists() && target.length() > 0) continue
-            val copied = try {
-                context.assets.open("tessdata/$fileName").use { input ->
-                    FileOutputStream(target).use { output -> input.copyTo(output) }
+        return try {
+            context.assets.open("tessdata/$LANGUAGE.traineddata").use { input ->
+                FileOutputStream(target).use { output ->
+                    input.copyTo(output)
                 }
-                true
-            } catch (e: Exception) {
-                false
             }
-            if (!copied) allOk = false
+            true
+        } catch (e: Exception) {
+            false
         }
-        return allOk
     }
 
-    /** عکس نسخه رو می‌گیره و متن استخراج‌شده رو برمی‌گردونه؛ کاملاً روی خود گوشی، بدون اینترنت */
+    /** عکس نسخه را می‌گیرد و متن فارسی استخراج‌شده را برمی‌گرداند؛ کاملاً روی خود گوشی، بدون اینترنت */
     suspend fun recognize(context: Context, bitmap: Bitmap): OcrResult = withContext(Dispatchers.Default) {
         if (!ensureLanguageDataCopied(context)) {
             return@withContext OcrResult.MissingLanguageData(
-                "فایل‌های زبان OCR (fas.traineddata و eng.traineddata) پیدا نشدن. باید این دو فایل رو یک‌بار از " +
-                    "مخزن رسمی tesseract-ocr/tessdata_fast دانلود کرده و در مسیر " +
-                    "app/src/main/assets/tessdata/ قرار بدی تا خواندن نسخه درست کار کنه."
+                "فایل زبان فارسی OCR (fas.traineddata) پیدا نشد. باید این فایل را یک‌بار از " +
+                    "مخزن رسمی tesseract-ocr/tessdata دانلود کرده و در مسیر " +
+                    "app/src/main/assets/tessdata/fas.traineddata قرار دهید تا خواندن نسخه کار کند."
             )
         }
-        val processedBitmap = try {
-            ImagePreprocessor.prepareForOcr(bitmap)
-        } catch (e: Exception) {
-            bitmap
-        }
-
         val api = TessBaseAPI()
         return@withContext try {
-            val ok = api.init(tessDataDir(context).absolutePath, LANGUAGES)
+            val ok = api.init(tessDataDir(context).absolutePath, LANGUAGE)
             if (!ok) {
                 OcrResult.Error("راه‌اندازی OCR ناموفق بود.")
             } else {
-                // یک بلوک متنی یکپارچه فرض کن (نه چند ستون)؛ باعث می‌شه خط‌های کم‌رنگ یا
-                // کنار هم رو کمتر جا بندازه نسبت به حالت خودکار پیش‌فرض
-                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
-                api.setVariable("preserve_interword_spaces", "1")
-                api.setImage(processedBitmap)
+                api.setImage(bitmap)
                 val text = api.getUTF8Text() ?: ""
                 OcrResult.Success(text)
             }

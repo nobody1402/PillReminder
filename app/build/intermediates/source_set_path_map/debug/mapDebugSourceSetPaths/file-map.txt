@@ -1,0 +1,60 @@
+com.example.pillreminder.app-appcompat-resources-1.6.1-0 /Users/hossein/.gradle/caches/transforms-4/02c435236337fd11a9d04a6cae15ed53/transformed/appcompat-resources-1.6.1/res
+com.example.pillreminder.app-navigation-compose-2.7.7-1 /Users/hossein/.gradle/caches/transforms-4/06813bfd41fe45dd6acbe2d20796d5ac/transformed/navigation-compose-2.7.7/res
+com.example.pillreminder.app-core-runtime-2.2.0-2 /Users/hossein/.gradle/caches/transforms-4/16acd163af1c1f892375c563dd496daa/transformed/core-runtime-2.2.0/res
+com.example.pillreminder.app-lifecycle-viewmodel-release-3 /Users/hossein/.gradle/caches/transforms-4/1a213c006e49bf36532ecf1655010b3c/transformed/lifecycle-viewmodel-release/res
+com.example.pillreminder.app-lifecycle-runtime-release-4 /Users/hossein/.gradle/caches/transforms-4/24c19dd32b5ea056e84ec63cd98a881c/transformed/lifecycle-runtime-release/res
+com.example.pillreminder.app-customview-poolingcontainer-1.0.0-5 /Users/hossein/.gradle/caches/transforms-4/25d570ba16ded848dc49bf520c424ce7/transformed/customview-poolingcontainer-1.0.0/res
+com.example.pillreminder.app-coil-base-2.6.0-6 /Users/hossein/.gradle/caches/transforms-4/288bde463680a175d8c45f1819c26a90/transformed/coil-base-2.6.0/res
+com.example.pillreminder.app-navigation-common-2.7.7-7 /Users/hossein/.gradle/caches/transforms-4/386a7b29ae21ea68867b7139416da3b4/transformed/navigation-common-2.7.7/res
+com.example.pillreminder.app-lifecycle-viewmodel-compose-release-8 /Users/hossein/.gradle/caches/transforms-4/3c60a49f13a65a49e87e13502f895135/transformed/lifecycle-viewmodel-compose-release/res
+com.example.pillreminder.app-navigation-common-ktx-2.7.7-9 /Users/hossein/.gradle/caches/transforms-4/3e4ddf81e9d6674272f50c618c1fd813/transformed/navigation-common-ktx-2.7.7/res
+com.example.pillreminder.app-animation-release-10 /Users/hossein/.gradle/caches/transforms-4/412a7e39fff03b58d0809541d036a4dd/transformed/animation-release/res
+com.example.pillreminder.app-ui-geometry-release-11 /Users/hossein/.gradle/caches/transforms-4/427a6e5bb498e67097e53d10515b9621/transformed/ui-geometry-release/res
+com.example.pillreminder.app-lifecycle-process-2.8.2-12 /Users/hossein/.gradle/caches/transforms-4/4887b3cda2e894ae5c2c384bae3c7c88/transformed/lifecycle-process-2.8.2/res
+com.example.pillreminder.app-emoji2-1.3.0-13 /Users/hossein/.gradle/caches/transforms-4/4a2931858aa398c832571ac10a56244c/transformed/emoji2-1.3.0/res
+com.example.pillreminder.app-room-ktx-2.6.1-14 /Users/hossein/.gradle/caches/transforms-4/4d5db0855d6f431d4058d7d2464a1e5a/transformed/room-ktx-2.6.1/res
+com.example.pillreminder.app-runtime-release-15 /Users/hossein/.gradle/caches/transforms-4/4de95a6f20f4c045a516cf7cc24e605a/transformed/runtime-release/res
+com.example.pillreminder.app-ui-util-release-16 /Users/hossein/.gradle/caches/transforms-4/556765a28beeb69a60e1c1c177e49698/transformed/ui-util-release/res
+com.example.pillreminder.app-ui-tooling-preview-release-17 /Users/hossein/.gradle/caches/transforms-4/55b9dcc37931d60102beaab782fd7b34/transformed/ui-tooling-preview-release/res
+com.example.pillreminder.app-savedstate-ktx-1.2.1-18 /Users/hossein/.gradle/caches/transforms-4/5ce8f1dcc9da418ce76f57fef10f4bd4/transformed/savedstate-ktx-1.2.1/res
+com.example.pillreminder.app-core-1.13.1-19 /Users/hossein/.gradle/caches/transforms-4/64fac751d1f7c22fe673f4973f529963/transformed/core-1.13.1/res
+com.example.pillreminder.app-activity-1.9.0-20 /Users/hossein/.gradle/caches/transforms-4/6549edd3916228c93ffefebb0c6d80db/transformed/activity-1.9.0/res
+com.example.pillreminder.app-lifecycle-livedata-2.8.2-21 /Users/hossein/.gradle/caches/transforms-4/67fac0e6f17541a7c86bf78aef8e442f/transformed/lifecycle-livedata-2.8.2/res
+com.example.pillreminder.app-foundation-layout-release-22 /Users/hossein/.gradle/caches/transforms-4/6e792295dd87a08fae36904ed1444e47/transformed/foundation-layout-release/res
+com.example.pillreminder.app-activity-ktx-1.9.0-23 /Users/hossein/.gradle/caches/transforms-4/7388f58a2b482bdcc0c91361a91c0ef2/transformed/activity-ktx-1.9.0/res
+com.example.pillreminder.app-ui-unit-release-24 /Users/hossein/.gradle/caches/transforms-4/7ad4ce58e99f29c8c8ea0888ea08d38d/transformed/ui-unit-release/res
+com.example.pillreminder.app-lifecycle-runtime-ktx-release-25 /Users/hossein/.gradle/caches/transforms-4/7df609b7cccea5607a5851aa97995064/transformed/lifecycle-runtime-ktx-release/res
+com.example.pillreminder.app-lifecycle-livedata-core-ktx-2.8.2-26 /Users/hossein/.gradle/caches/transforms-4/80f2cd996ac67a54653cd7048f8ce60d/transformed/lifecycle-livedata-core-ktx-2.8.2/res
+com.example.pillreminder.app-room-runtime-2.6.1-27 /Users/hossein/.gradle/caches/transforms-4/8d99427133b622e53ac843b255aa4dee/transformed/room-runtime-2.6.1/res
+com.example.pillreminder.app-core-ktx-1.13.1-28 /Users/hossein/.gradle/caches/transforms-4/9536e020629eb7e9c95a124c8d8a9065/transformed/core-ktx-1.13.1/res
+com.example.pillreminder.app-lifecycle-viewmodel-ktx-2.8.2-29 /Users/hossein/.gradle/caches/transforms-4/96705b1d1f9e9bf28d71460e1600d710/transformed/lifecycle-viewmodel-ktx-2.8.2/res
+com.example.pillreminder.app-ui-graphics-release-30 /Users/hossein/.gradle/caches/transforms-4/a16bf74abf10d32eca6d7b02767244e1/transformed/ui-graphics-release/res
+com.example.pillreminder.app-ui-text-release-31 /Users/hossein/.gradle/caches/transforms-4/a7b3cfb4e1bc66f78c2e67f0ef73182a/transformed/ui-text-release/res
+com.example.pillreminder.app-navigation-runtime-2.7.7-32 /Users/hossein/.gradle/caches/transforms-4/a7e39aad54552786e1fe32bc96ab26a7/transformed/navigation-runtime-2.7.7/res
+com.example.pillreminder.app-sqlite-framework-2.4.0-33 /Users/hossein/.gradle/caches/transforms-4/ab67dbc32b29295b6623289f39f2b3ed/transformed/sqlite-framework-2.4.0/res
+com.example.pillreminder.app-navigation-runtime-ktx-2.7.7-34 /Users/hossein/.gradle/caches/transforms-4/abae9dac8e48a4d013f0c5663cded14a/transformed/navigation-runtime-ktx-2.7.7/res
+com.example.pillreminder.app-material3-release-35 /Users/hossein/.gradle/caches/transforms-4/ba4039b383f30919e7979a295fdcd514/transformed/material3-release/res
+com.example.pillreminder.app-foundation-release-36 /Users/hossein/.gradle/caches/transforms-4/baa016aa27ec537bc9911d9a5a2efa3c/transformed/foundation-release/res
+com.example.pillreminder.app-lifecycle-viewmodel-savedstate-2.8.2-37 /Users/hossein/.gradle/caches/transforms-4/bd7b10fc270bb445bf8059bb692c28c3/transformed/lifecycle-viewmodel-savedstate-2.8.2/res
+com.example.pillreminder.app-ui-release-38 /Users/hossein/.gradle/caches/transforms-4/bd8755e5ea465559d9267d321d633459/transformed/ui-release/res
+com.example.pillreminder.app-material-icons-core-release-39 /Users/hossein/.gradle/caches/transforms-4/c1d618d76fd895ec5a2100ceaa0703c9/transformed/material-icons-core-release/res
+com.example.pillreminder.app-startup-runtime-1.1.1-40 /Users/hossein/.gradle/caches/transforms-4/c721813690cebc1afcc2b51e6650bb17/transformed/startup-runtime-1.1.1/res
+com.example.pillreminder.app-runtime-saveable-release-41 /Users/hossein/.gradle/caches/transforms-4/c7c8e59579cabfbc1f472b3cef1745f8/transformed/runtime-saveable-release/res
+com.example.pillreminder.app-lifecycle-livedata-core-2.8.2-42 /Users/hossein/.gradle/caches/transforms-4/c838b1d143d5a0f94311150a1f49f090/transformed/lifecycle-livedata-core-2.8.2/res
+com.example.pillreminder.app-savedstate-1.2.1-43 /Users/hossein/.gradle/caches/transforms-4/c996c21d81d5d8cfd47a21d0666d3195/transformed/savedstate-1.2.1/res
+com.example.pillreminder.app-annotation-experimental-1.4.0-44 /Users/hossein/.gradle/caches/transforms-4/cdb6c3968c6071cc27d93bf343c6d8b7/transformed/annotation-experimental-1.4.0/res
+com.example.pillreminder.app-animation-core-release-45 /Users/hossein/.gradle/caches/transforms-4/d86b98f496806101e14ff0b0c6af548a/transformed/animation-core-release/res
+com.example.pillreminder.app-lifecycle-service-2.8.2-46 /Users/hossein/.gradle/caches/transforms-4/dbcea25d8bc62ee25fa0a87506130e74/transformed/lifecycle-service-2.8.2/res
+com.example.pillreminder.app-profileinstaller-1.3.1-47 /Users/hossein/.gradle/caches/transforms-4/e040968285d75650bf1de2c001e995ee/transformed/profileinstaller-1.3.1/res
+com.example.pillreminder.app-material-ripple-release-48 /Users/hossein/.gradle/caches/transforms-4/eb6da337908ef399e783d2225e06cb98/transformed/material-ripple-release/res
+com.example.pillreminder.app-sqlite-2.4.0-49 /Users/hossein/.gradle/caches/transforms-4/ec7d162d36b9b4cfe70bdcdc710c1e1e/transformed/sqlite-2.4.0/res
+com.example.pillreminder.app-work-runtime-ktx-2.9.0-50 /Users/hossein/.gradle/caches/transforms-4/ef413de1ef7f12db83bac04516be57dd/transformed/work-runtime-ktx-2.9.0/res
+com.example.pillreminder.app-activity-compose-1.9.0-51 /Users/hossein/.gradle/caches/transforms-4/f50ee856354b9f81208deeffa23d1226/transformed/activity-compose-1.9.0/res
+com.example.pillreminder.app-work-runtime-2.9.0-52 /Users/hossein/.gradle/caches/transforms-4/fcb9317f135f7db7601bf22eda1285bd/transformed/work-runtime-2.9.0/res
+com.example.pillreminder.app-pngs-53 /Users/hossein/Documents/program/Pill Reminder/PillReminder_github/app/build/generated/res/pngs/debug
+com.example.pillreminder.app-resValues-54 /Users/hossein/Documents/program/Pill Reminder/PillReminder_github/app/build/generated/res/resValues/debug
+com.example.pillreminder.app-packageDebugResources-55 /Users/hossein/Documents/program/Pill Reminder/PillReminder_github/app/build/intermediates/incremental/debug/packageDebugResources/merged.dir
+com.example.pillreminder.app-packageDebugResources-56 /Users/hossein/Documents/program/Pill Reminder/PillReminder_github/app/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
+com.example.pillreminder.app-debug-57 /Users/hossein/Documents/program/Pill Reminder/PillReminder_github/app/build/intermediates/merged_res/debug/mergeDebugResources
+com.example.pillreminder.app-debug-58 /Users/hossein/Documents/program/Pill Reminder/PillReminder_github/app/src/debug/res
+com.example.pillreminder.app-main-59 /Users/hossein/Documents/program/Pill Reminder/PillReminder_github/app/src/main/res
