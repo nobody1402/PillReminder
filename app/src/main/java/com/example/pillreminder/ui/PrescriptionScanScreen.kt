@@ -1,15 +1,14 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.example.pillreminder.ui
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -25,12 +24,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.navigation.NavHostController
 import com.example.pillreminder.util.DrugPrefillState
-import com.example.pillreminder.util.ParsedPrescriptionItem
 import com.example.pillreminder.util.PrescriptionOcrEngine
 import com.example.pillreminder.util.PrescriptionParser
+import com.example.pillreminder.util.PrescriptionScanState
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -51,66 +51,75 @@ private fun createCameraOutputUri(context: Context): Uri {
 }
 
 // ---------------------------------------------------------------------------------
-// صفحه «اسکن نسخه»: کاربر عکس نسخه رو از گالری/دوربین انتخاب می‌کنه، متن فارسی‌اش
-// به‌صورت کاملاً آفلاین (روی خودِ گوشی) خونده می‌شه، و برای هر دارویی که تشخیص داده
-// شد یک کارت پیش‌نویس نمایش داده می‌شه. هیچ آلارمی خودکار و بدون تایید نهایی کاربر
-// در فرم افزودن دارو ساخته نمی‌شه — چون OCR و تشخیص نام دارو می‌تونن اشتباه کنن.
+// صفحه «اسکن نسخه»: کاربر عکس نسخه رو از گالری/دوربین انتخاب می‌کنه، متن نسخه به‌صورت
+// کاملاً آفلاین (روی خودِ گوشی) خونده می‌شه، و برای هر دارویی که تشخیص داده شد یک کارت
+// پیش‌نویس نشون داده می‌شه. وضعیت این صفحه در PrescriptionScanState نگه داشته می‌شه تا
+// وقتی یک دارو رو ذخیره می‌کنی و برمی‌گردی، بقیه‌ی داروهای تشخیص‌داده‌شده هنوز باشن.
 // ---------------------------------------------------------------------------------
 @Composable
 fun PrescriptionScanScreen(nav: NavHostController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var imageBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var ocrText by remember { mutableStateOf("") }
-    var isProcessing by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var parsedItems by remember { mutableStateOf<List<ParsedPrescriptionItem>>(emptyList()) }
     var cameraTargetUri by remember { mutableStateOf<Uri?>(null) }
 
     fun runOcr(bitmap: Bitmap) {
-        isProcessing = true
-        errorMessage = null
-        parsedItems = emptyList()
+        PrescriptionScanState.isProcessing = true
+        PrescriptionScanState.errorMessage = null
+        PrescriptionScanState.parsedItems = emptyList()
+        PrescriptionScanState.addedItemIndices = emptySet()
         scope.launch {
             when (val result = PrescriptionOcrEngine.recognize(context, bitmap)) {
                 is PrescriptionOcrEngine.OcrResult.Success -> {
-                    ocrText = result.text
+                    PrescriptionScanState.ocrText = result.text
                 }
                 is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
-                    errorMessage = result.message
+                    PrescriptionScanState.errorMessage = result.message
                 }
                 is PrescriptionOcrEngine.OcrResult.Error -> {
-                    errorMessage = result.message
+                    PrescriptionScanState.errorMessage = result.message
                 }
             }
-            isProcessing = false
+            PrescriptionScanState.isProcessing = false
         }
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val bmp = uriToBitmap(context, uri)
-            imageBitmap = bmp
-            ocrText = ""
-            parsedItems = emptyList()
-            if (bmp != null) runOcr(bmp) else errorMessage = "خواندن عکس ممکن نشد."
-        }
+    fun onImagePicked(uri: Uri?) {
+        if (uri == null) return
+        val bmp = uriToBitmap(context, uri)
+        PrescriptionScanState.imageBitmap = bmp
+        PrescriptionScanState.ocrText = ""
+        PrescriptionScanState.parsedItems = emptyList()
+        PrescriptionScanState.addedItemIndices = emptySet()
+        if (bmp != null) runOcr(bmp) else PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
     }
+
+    // انتخاب از گالری با انتخاب‌گر عمومی سیستم (به دسترسی ذخیره‌سازی نیازی نداره و روی
+    // همه گوشی‌ها کار می‌کنه، برخلاف Photo Picker گوگل که ممکنه روی همه گوشی‌ها نصب/فعال نباشه)
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? -> onImagePicked(uri) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success: Boolean ->
-        val uri = cameraTargetUri
-        if (success && uri != null) {
-            val bmp = uriToBitmap(context, uri)
-            imageBitmap = bmp
-            ocrText = ""
-            parsedItems = emptyList()
-            if (bmp != null) runOcr(bmp) else errorMessage = "خواندن عکس ممکن نشد."
-        }
+        if (success) onImagePicked(cameraTargetUri)
+    }
+
+    fun launchCamera() {
+        val uri = createCameraOutputUri(context)
+        cameraTargetUri = uri
+        cameraLauncher.launch(uri)
+    }
+
+    // مجوز دوربین رو خودکار درخواست می‌کنه؛ کاربر لازم نیست دستی بره توی تنظیمات گوشی
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) launchCamera() else PrescriptionScanState.errorMessage = "برای گرفتن عکس، لازمه اجازه‌ی دسترسی به دوربین رو بدی." }
+
+    fun onCameraButtonClick() {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (granted) launchCamera() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("افزودن دارو از روی عکس نسخه") }) }) { padding ->
@@ -128,22 +137,16 @@ fun PrescriptionScanScreen(nav: NavHostController) {
             Spacer(Modifier.height(12.dp))
 
             Row {
-                Button(
-                    onClick = { galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    modifier = Modifier.weight(1f)
-                ) { Text("🖼 انتخاب از گالری") }
+                Button(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                    Text("🖼 انتخاب از گالری")
+                }
                 Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = {
-                        val uri = createCameraOutputUri(context)
-                        cameraTargetUri = uri
-                        cameraLauncher.launch(uri)
-                    },
-                    modifier = Modifier.weight(1f)
-                ) { Text("📷 گرفتن عکس") }
+                Button(onClick = { onCameraButtonClick() }, modifier = Modifier.weight(1f)) {
+                    Text("📷 گرفتن عکس")
+                }
             }
 
-            imageBitmap?.let { bmp ->
+            PrescriptionScanState.imageBitmap?.let { bmp ->
                 Spacer(Modifier.height(16.dp))
                 Image(
                     bitmap = bmp.asImageBitmap(),
@@ -152,7 +155,7 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 )
             }
 
-            if (isProcessing) {
+            if (PrescriptionScanState.isProcessing) {
                 Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -161,7 +164,7 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 }
             }
 
-            errorMessage?.let { err ->
+            PrescriptionScanState.errorMessage?.let { err ->
                 Spacer(Modifier.height(16.dp))
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
@@ -171,28 +174,32 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 }
             }
 
-            if (ocrText.isNotBlank()) {
+            if (PrescriptionScanState.ocrText.isNotBlank()) {
                 Spacer(Modifier.height(16.dp))
                 Text("متن خوانده‌شده (در صورت نیاز اصلاح کن)", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
-                    value = ocrText,
-                    onValueChange = { ocrText = it },
+                    value = PrescriptionScanState.ocrText,
+                    onValueChange = { PrescriptionScanState.ocrText = it },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 5
                 )
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { parsedItems = PrescriptionParser.parse(ocrText) },
+                    onClick = {
+                        PrescriptionScanState.parsedItems = PrescriptionParser.parse(PrescriptionScanState.ocrText)
+                        PrescriptionScanState.addedItemIndices = emptySet()
+                    },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("🔍 تحلیل و استخراج داروها") }
             }
 
-            if (parsedItems.isNotEmpty()) {
+            if (PrescriptionScanState.parsedItems.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
                 Text("داروهای پیشنهادی (پیش‌نویس)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(8.dp))
-                parsedItems.forEach { item ->
+                PrescriptionScanState.parsedItems.forEachIndexed { index, item ->
+                    val alreadyAdded = PrescriptionScanState.addedItemIndices.contains(index)
                     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp), shape = RoundedCornerShape(14.dp)) {
                         Column(Modifier.padding(14.dp)) {
                             Text(item.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -214,10 +221,12 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                             Button(
                                 onClick = {
                                     DrugPrefillState.pending = item
+                                    PrescriptionScanState.addedItemIndices = PrescriptionScanState.addedItemIndices + index
                                     nav.navigate("addPill")
                                 },
+                                enabled = !alreadyAdded,
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("➕ افزودن به لیست داروها") }
+                            ) { Text(if (alreadyAdded) "✅ اضافه شد" else "➕ افزودن به لیست داروها") }
                         }
                     }
                 }
@@ -228,6 +237,10 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.error
                 )
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = { PrescriptionScanState.reset() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("🗑 شروع دوباره با عکس جدید")
+                }
             }
         }
     }
