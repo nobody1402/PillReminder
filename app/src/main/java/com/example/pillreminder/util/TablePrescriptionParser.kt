@@ -91,7 +91,7 @@ object TablePrescriptionParser {
     private fun detectTimes(timingText: String, doseText: String): Pair<List<LocalTime>, Boolean> {
         val n = norm("$timingText $doseText")
         return when {
-            n.contains("هر ۲۴ ساعت") || n.contains("هر ۲۴ ساعت") || n.contains("یک بار در روز") -> 
+            n.contains("هر ۲۴ ساعت") || n.contains("هر 24 ساعت") || n.contains("یک بار در روز") -> 
                 listOf(LocalTime.of(8, 0)) to false
             
             n.contains("سه بار در روز") || n.contains("۳ بار") -> 
@@ -149,9 +149,8 @@ object TablePrescriptionParser {
 
         val anchors = detectColumnAnchors(rows[headerRowIndex]) ?: return null
         
-        // ✅ اصلاح خطا: اگر ستون عنوان دارو پیدا نشد، خروجی
-        val drugColumnX = anchors["عنوان دارو"]
-        if (drugColumnX == null) return null
+        // ✅ بررسی وجود ستون عنوان دارو
+        if (!anchors.containsKey("عنوان دارو")) return null
 
         val items = mutableListOf<ParsedPrescriptionItem>()
         
