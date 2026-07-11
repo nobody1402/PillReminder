@@ -71,23 +71,19 @@ fun PrescriptionScanScreen(nav: NavHostController) {
             when (val result = PrescriptionOcrEngine.recognize(context, bitmap)) {
                 is PrescriptionOcrEngine.OcrResult.Success -> {
                     PrescriptionScanState.ocrText = result.text
-                    
-                    // ========== تغییر اصلی اینجاست ==========
-                    // اول سعی کن با پارسر جدول بخواند (با استفاده از مختصات کلمات)
-                    val tableItems = TablePrescriptionParser.parse(result.words)
-                    if (tableItems != null && tableItems.isNotEmpty()) {
-                        // جدول تشخیص داده شد
-                        PrescriptionScanState.parsedItems = tableItems
-                    } else {
-                        // اگر جدول تشخیص داده نشد، از پارسر خطی استفاده کن
-                        PrescriptionScanState.parsedItems = PrescriptionParser.parse(result.text)
-                    }
-                    // ==========================================
-                    
-                    // برای دیباگ در Logcat
+
+                    // ========== استفاده از پارسر با مختصات کلمات ==========
+                    val parsedItems = PrescriptionParser.parse(result.text, result.words)
+                    PrescriptionScanState.parsedItems = parsedItems
+                    // ====================================================
+
+                    // دیباگ در Logcat
                     android.util.Log.d("OCR_DEBUG", "Text: ${result.text}")
                     android.util.Log.d("OCR_DEBUG", "Words count: ${result.words.size}")
-                    android.util.Log.d("OCR_DEBUG", "Parsed items: ${PrescriptionScanState.parsedItems.size}")
+                    android.util.Log.d("OCR_DEBUG", "Parsed items: ${parsedItems.size}")
+                    parsedItems.forEachIndexed { index, item ->
+                        android.util.Log.d("OCR_DEBUG", "Item $index: ${item.name} - ${item.suggestedTimesOfDay}")
+                    }
                 }
                 is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
                     PrescriptionScanState.errorMessage = result.message
