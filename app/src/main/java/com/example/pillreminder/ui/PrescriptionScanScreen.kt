@@ -29,10 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.navigation.NavHostController
-import com.example.pillreminder.util.DrugPrefillState
-import com.example.pillreminder.util.PrescriptionOcrEngine
-import com.example.pillreminder.util.PrescriptionParser
-import com.example.pillreminder.util.PrescriptionScanState
+import com.example.pillreminder.util.*
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -74,6 +71,23 @@ fun PrescriptionScanScreen(nav: NavHostController) {
             when (val result = PrescriptionOcrEngine.recognize(context, bitmap)) {
                 is PrescriptionOcrEngine.OcrResult.Success -> {
                     PrescriptionScanState.ocrText = result.text
+                    
+                    // ========== تغییر اصلی اینجاست ==========
+                    // اول سعی کن با پارسر جدول بخواند (با استفاده از مختصات کلمات)
+                    val tableItems = TablePrescriptionParser.parse(result.words)
+                    if (tableItems != null && tableItems.isNotEmpty()) {
+                        // جدول تشخیص داده شد
+                        PrescriptionScanState.parsedItems = tableItems
+                    } else {
+                        // اگر جدول تشخیص داده نشد، از پارسر خطی استفاده کن
+                        PrescriptionScanState.parsedItems = PrescriptionParser.parse(result.text)
+                    }
+                    // ==========================================
+                    
+                    // برای دیباگ در Logcat
+                    android.util.Log.d("OCR_DEBUG", "Text: ${result.text}")
+                    android.util.Log.d("OCR_DEBUG", "Words count: ${result.words.size}")
+                    android.util.Log.d("OCR_DEBUG", "Parsed items: ${PrescriptionScanState.parsedItems.size}")
                 }
                 is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
                     PrescriptionScanState.errorMessage = result.message
@@ -93,7 +107,13 @@ fun PrescriptionScanScreen(nav: NavHostController) {
         PrescriptionScanState.ocrText = ""
         PrescriptionScanState.parsedItems = emptyList()
         PrescriptionScanState.addedItemIndices = emptySet()
-        if (bmp != null) runOcr(bmp) else PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
+        if (bmp != null) {
+            // پیش‌پردازش تصویر برای OCR بهتر
+            val processedBitmap = ImagePreprocessor.prepareForOcr(bmp)
+            runOcr(processedBitmap)
+        } else {
+            PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
+        }
     }
 
     // انتخاب از گالری با انتخاب‌گر عمومی سیستم (به دسترسی ذخیره‌سازی نیازی نداره و روی
@@ -189,6 +209,7 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
+                        // وقتی کاربر دستی متن رو اصلاح می‌کنه، از پارسر خطی استفاده می‌کنیم (چون مختصات نداریم)
                         PrescriptionScanState.parsedItems = PrescriptionParser.parse(PrescriptionScanState.ocrText)
                         PrescriptionScanState.addedItemIndices = emptySet()
                     },
