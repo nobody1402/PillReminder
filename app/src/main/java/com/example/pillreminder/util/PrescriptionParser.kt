@@ -5,7 +5,7 @@ import java.time.LocalTime
 data class ParsedPrescriptionItem(
     val rawLine: String,
     val name: String,
-    val formHint: String?, // مثلا "آمپول"، "شربت"، "سرم"، "قرص"
+    val formHint: String?,
     val quantity: Int?,
     val suggestedDoseAmount: Double,
     val suggestedTimesOfDay: List<LocalTime>,
@@ -31,8 +31,8 @@ object PrescriptionParser {
     fun parse(rawText: String, words: List<OcrWord> = emptyList()): List<ParsedPrescriptionItem> {
         // اگر کلمات با مختصات داریم، از پارسر جدول استفاده کن
         if (words.isNotEmpty()) {
-            val tableResult = TablePrescriptionParser.parseTable(words)
-            if (tableResult.isNotEmpty()) {
+            val tableResult = TablePrescriptionParser.parse(words)
+            if (tableResult != null && tableResult.isNotEmpty()) {
                 return tableResult
             }
         }
