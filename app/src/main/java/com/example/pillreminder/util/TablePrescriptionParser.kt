@@ -21,7 +21,6 @@ object TablePrescriptionParser {
         if (words.isEmpty()) return emptyList()
         val sorted = words.sortedBy { centerY(it) }
         
-        // محاسبه ارتفاع متوسط برای تشخیص سطرها
         val avgHeight = sorted.map { it.bottom - it.top }.average().takeIf { it > 0 } ?: 30.0
         val rows = mutableListOf<MutableList<OcrWord>>()
         
@@ -29,7 +28,6 @@ object TablePrescriptionParser {
             val cy = centerY(w)
             val currentRow = rows.lastOrNull()
             
-            // اگر سطر جدید باشد یا فاصله زیادی داشته باشد
             val fitsCurrentRow = currentRow != null &&
                 abs(cy - currentRow.map { centerY(it) }.average()) < avgHeight * 0.8
             
@@ -53,7 +51,6 @@ object TablePrescriptionParser {
             ?.let { centerX(it) }
 
     private fun detectColumnAnchors(headerRow: List<OcrWord>): Map<String, Int>? {
-        // پیدا کردن موقعیت ستون‌ها با کلمات کلیدی
         val radif = findWordX(headerRow, "ردیف")
         val onvan = findWordX(headerRow, "عنوان")
         val darou = findWordX(headerRow, "دارو")
@@ -62,22 +59,12 @@ object TablePrescriptionParser {
         val zaman = findWordX(headerRow, "زمان")
         val tarighe = findWordX(headerRow, "طریقه")
 
-        // اگر ستون‌های کلیدی پیدا نشد، از روش جایگزین استفاده کن
         if (onvan == null && darou == null) return null
 
-        // ستون عنوان دارو
         val drugColumn = listOfNotNull(onvan, darou).average().toInt()
-        
-        // ستون تعداد
         val countColumn = tedad ?: (drugColumn + 200)
-        
-        // ستون مقادیر مصرف
         val doseColumn = meghdar ?: (countColumn + 150)
-        
-        // ستون زمان مصرف
         val timeColumn = zaman ?: (doseColumn + 150)
-        
-        // ستون طریقه مصرف
         val methodColumn = tarighe ?: (timeColumn + 150)
 
         val result = mutableMapOf<String, Int>()
@@ -130,17 +117,15 @@ object TablePrescriptionParser {
     }
 
     private fun extractDrugName(text: String): String {
-        // حذف اعداد و اطلاعات اضافی
         var cleaned = text
-            .replace(Regex("\\([^)]*\\)"), "") // حذف پرانتز
-            .replace(Regex("\\d+\\s*mg"), "") // حذف میلی‌گرم
-            .replace(Regex("\\d+\\s*[IU]"), "") // حذف واحدهای بین‌المللی
-            .replace(Regex("/\\d+"), "") // حذف کسرها
-            .replace(Regex("\\d+"), "") // حذف اعداد
+            .replace(Regex("\\([^)]*\\)"), "")
+            .replace(Regex("\\d+\\s*mg"), "")
+            .replace(Regex("\\d+\\s*[IU]"), "")
+            .replace(Regex("/\\d+"), "")
+            .replace(Regex("\\d+"), "")
             .replace(Regex("\\s+"), " ")
             .trim()
         
-        // اگر اسم خالی شد، متن اصلی را برگردان
         return if (cleaned.isBlank() || cleaned.length < 2) {
             text.replace(Regex("\\s+"), " ").trim()
         } else {
@@ -151,7 +136,6 @@ object TablePrescriptionParser {
     fun looksLikeTable(words: List<OcrWord>): Boolean {
         if (words.size < 10) return false
         val rows = clusterRows(words)
-        // جستجوی کلمات کلیدی در سطرهای اول
         val firstRows = rows.take(3)
         return firstRows.any { headerScore(it) >= 2 }
     }
@@ -160,7 +144,6 @@ object TablePrescriptionParser {
         val rows = clusterRows(words)
         if (rows.size < 2) return null
 
-        // پیدا کردن سطر هدر
         val headerRowIndex = rows.indices.maxByOrNull { headerScore(rows[it]) } ?: return null
         if (headerScore(rows[headerRowIndex]) < 2) return null
 
@@ -186,7 +169,6 @@ object TablePrescriptionParser {
                     }
                 }
                 
-                // اگر فاصله خیلی زیاد بود، نادیده بگیر
                 if (minDist < 300) {
                     buckets.getOrPut(nearestColumn) { mutableListOf() }.add(word)
                 }
@@ -197,7 +179,6 @@ object TablePrescriptionParser {
                     .sortedBy { it.left }
                     .joinToString(" ") { it.text }
 
-            // استخراج اطلاعات از هر ستون
             val drugNameRaw = colText("عنوان دارو").trim()
             if (drugNameRaw.isBlank() || drugNameRaw.length < 2) continue
             
@@ -212,13 +193,9 @@ object TablePrescriptionParser {
             val timingText = colText("زمان مصرف")
             val methodText = colText("طریقه مصرف")
 
-            // تشخیص رابطه با غذا
             val foodRelation = detectFoodRelation(methodText)
-            
-            // تشخیص ساعت‌ها
             val (times, needsManual) = detectTimes(timingText, doseText)
 
-            // ساخت یادداشت
             val note = buildString {
                 append("طبق نسخه: ")
                 if (doseText.isNotBlank()) append("دوز $doseText, ")
@@ -229,6 +206,7 @@ object TablePrescriptionParser {
                 }
             }
 
+            // ✅ استفاده از کلاس DrugRuleSuggestion از DrugKnowledgeBase
             items.add(
                 ParsedPrescriptionItem(
                     rawLine = drugNameRaw,
@@ -251,12 +229,3 @@ object TablePrescriptionParser {
         return items.ifEmpty { null }
     }
 }
-
-// اضافه کردن کلاس DrugRuleSuggestion اگر وجود ندارد
-data class DrugRuleSuggestion(
-    val foodRelation: FoodRelation? = null,
-    val note: String = "",
-    val englishName: String? = null,
-    val fixedIntervalHours: Int? = null,
-    val waitAfterMinutes: Int? = null
-)
