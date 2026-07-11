@@ -102,7 +102,7 @@ fun AppNav(nav: NavHostController, repo: PillRepository) {
         composable("rules") { InteractionRulesScreen(nav, repo) }
         composable("history") { HistoryScreen(nav, repo) }
         composable("settings") { SettingsScreen(nav) }
-        composable("scanPrescription") { PrescriptionScanScreen(nav, repo) }
+        composable("scanPrescription") { PrescriptionScanScreen(nav) } // ✅ اصلاح شد: repo حذف شد
     }
 }
 
@@ -725,8 +725,7 @@ fun AddEditPillScreen(nav: NavHostController, repo: PillRepository, existing: Pi
                         startDateEpochDay = loaded?.startDateEpochDay ?: LocalDate.now().toEpochDay(),
                         treatmentDurationDays = durationDays.toIntOrNull(),
                         inventoryCount = inventory.toDoubleOrNull(),
-                        lowStockThresholdDays = lowStockDays.toIntOrNull() ?: 3
-                    )
+                        lowStockThresholdDays = lowStockDays.toIntOrNull() ?: 3                    )
                     val allPills = repo.getAllPillsSnapshot()
                     val rules = emptyList<InteractionRule>() // قوانین از صفحه تداخل‌ها مدیریت می‌شوند
                     val warnings = repo.addOrUpdatePill(pill, allPills, rules)
