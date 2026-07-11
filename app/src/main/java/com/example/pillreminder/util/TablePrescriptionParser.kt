@@ -148,7 +148,10 @@ object TablePrescriptionParser {
         if (headerScore(rows[headerRowIndex]) < 2) return null
 
         val anchors = detectColumnAnchors(rows[headerRowIndex]) ?: return null
-        val drugColumnX = anchors["عنوان دارو"] ?: return null
+        
+        // ✅ اصلاح خطا: اگر ستون عنوان دارو پیدا نشد، خروجی
+        val drugColumnX = anchors["عنوان دارو"]
+        if (drugColumnX == null) return null
 
         val items = mutableListOf<ParsedPrescriptionItem>()
         
@@ -206,7 +209,6 @@ object TablePrescriptionParser {
                 }
             }
 
-            // ✅ استفاده از کلاس DrugRuleSuggestion از DrugKnowledgeBase
             items.add(
                 ParsedPrescriptionItem(
                     rawLine = drugNameRaw,
