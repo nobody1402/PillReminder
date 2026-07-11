@@ -4,15 +4,7 @@ import com.example.pillreminder.data.FoodRelation
 import java.time.LocalTime
 import kotlin.math.abs
 
-/**
- * پارسر اختصاصی برای فرمت جدولیِ «سامانه نسخه الکترونیک» (تامین اجتماعی و مشابه):
- * ستون‌های ردیف / عنوان دارو / تعداد / مقادیر مصرف / زمان مصرف / طریقه مصرف.
- */
 object TablePrescriptionParser {
-
-    private val allHeaderKeywords = listOf("ردیف", "عنوان", "دارو", "تعداد", "مقادیر", "زمان", "طریقه", "مصرف")
-
-    private fun norm(s: String) = DrugKnowledgeBase.normalize(s)
 
     private fun centerX(w: OcrWord) = (w.left + w.right) / 2
     private fun centerY(w: OcrWord) = (w.top + w.bottom) / 2
@@ -20,14 +12,12 @@ object TablePrescriptionParser {
     private fun clusterRows(words: List<OcrWord>): List<List<OcrWord>> {
         if (words.isEmpty()) return emptyList()
         val sorted = words.sortedBy { centerY(it) }
-        
         val avgHeight = sorted.map { it.bottom - it.top }.average().takeIf { it > 0 } ?: 30.0
         val rows = mutableListOf<MutableList<OcrWord>>()
         
         for (w in sorted) {
             val cy = centerY(w)
             val currentRow = rows.lastOrNull()
-            
             val fitsCurrentRow = currentRow != null &&
                 abs(cy - currentRow.map { centerY(it) }.average()) < avgHeight * 0.8
             
@@ -37,175 +27,131 @@ object TablePrescriptionParser {
                 rows.add(mutableListOf(w))
             }
         }
-        
         return rows
     }
 
-    private fun headerScore(row: List<OcrWord>): Int {
-        val texts = row.map { norm(it.text) }
-        return allHeaderKeywords.count { kw -> texts.any { it == norm(kw) || it.contains(norm(kw)) } }
+    private fun isHeaderRow(row: List<OcrWord>): Boolean {
+        val keywords = listOf("ردیف", "عنوان", "دارو", "تعداد", "مقادیر", "زمان", "طریقه", "مصرف")
+        val texts = row.map { it.text }
+        return keywords.count { kw -> texts.any { it.contains(kw) } } >= 3
     }
 
-    private fun findWordX(row: List<OcrWord>, keyword: String): Int? =
-        row.firstOrNull { norm(it.text) == norm(keyword) || norm(it.text).contains(norm(keyword)) }
-            ?.let { centerX(it) }
-
-    private fun detectColumnAnchors(headerRow: List<OcrWord>): Map<String, Int>? {
-        val radif = findWordX(headerRow, "ردیف")
-        val onvan = findWordX(headerRow, "عنوان")
-        val darou = findWordX(headerRow, "دارو")
-        val tedad = findWordX(headerRow, "تعداد")
-        val meghdar = findWordX(headerRow, "مقادیر")
-        val zaman = findWordX(headerRow, "زمان")
-        val tarighe = findWordX(headerRow, "طریقه")
-
-        if (onvan == null && darou == null) return null
-
-        val drugColumn = listOfNotNull(onvan, darou).average().toInt()
-        val countColumn = tedad ?: (drugColumn + 200)
-        val doseColumn = meghdar ?: (countColumn + 150)
-        val timeColumn = zaman ?: (doseColumn + 150)
-        val methodColumn = tarighe ?: (timeColumn + 150)
-
-        val result = mutableMapOf<String, Int>()
-        radif?.let { result["ردیف"] = it }
-        result["عنوان دارو"] = drugColumn
-        result["تعداد"] = countColumn
-        result["مقادیر مصرف"] = doseColumn
-        result["زمان مصرف"] = timeColumn
-        result["طریقه مصرف"] = methodColumn
-
-        return result
-    }
-
-    private fun detectFoodRelation(methodText: String): FoodRelation {
-        val n = norm(methodText)
-        return when {
-            n.contains(norm("معده خالی")) || n.contains(norm("قبل از غذا")) || n.contains("empty stomach") -> FoodRelation.BEFORE_FOOD
-            n.contains(norm("همراه")) && n.contains(norm("غذا")) -> FoodRelation.WITH_FOOD
-            n.contains(norm("بعد از غذا")) || n.contains("after meal") -> FoodRelation.AFTER_FOOD
-            else -> FoodRelation.NO_RELATION
-        }
-    }
-
-    private fun detectTimes(timingText: String, doseText: String): Pair<List<LocalTime>, Boolean> {
-        val n = norm("$timingText $doseText")
-        return when {
-            n.contains("هر ۲۴ ساعت") || n.contains("هر 24 ساعت") || n.contains("یک بار در روز") -> 
-                listOf(LocalTime.of(8, 0)) to false
-            
-            n.contains("سه بار در روز") || n.contains("۳ بار") -> 
-                listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0)) to false
-            
-            n.contains("دو بار در روز") || n.contains("۲ بار") -> 
-                listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)) to false
-            
-            n.contains("هر دو هفته") || n.contains("هر دو هفته یک بار") -> 
-                listOf(LocalTime.of(8, 0)) to true
-            
-            n.contains("طبق دستور") || n.contains("as directed") -> 
-                listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)) to true
-            
-            n.contains("هر 8 ساعت") || n.contains("هر ۸ ساعت") -> 
-                listOf(LocalTime.of(8, 0), LocalTime.of(16, 0), LocalTime.of(0, 0)) to false
-            
-            n.contains("هر 6 ساعت") || n.contains("هر ۶ ساعت") -> 
-                listOf(LocalTime.of(6, 0), LocalTime.of(12, 0), LocalTime.of(18, 0), LocalTime.of(0, 0)) to false
-            
-            else -> listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)) to true
-        }
-    }
-
-    private fun extractDrugName(text: String): String {
-        var cleaned = text
-            .replace(Regex("\\([^)]*\\)"), "")
-            .replace(Regex("\\d+\\s*mg"), "")
-            .replace(Regex("\\d+\\s*[IU]"), "")
-            .replace(Regex("/\\d+"), "")
-            .replace(Regex("\\d+"), "")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        
-        return if (cleaned.isBlank() || cleaned.length < 2) {
-            text.replace(Regex("\\s+"), " ").trim()
-        } else {
-            cleaned
-        }
-    }
-
-    fun looksLikeTable(words: List<OcrWord>): Boolean {
-        if (words.size < 10) return false
-        val rows = clusterRows(words)
-        val firstRows = rows.take(3)
-        return firstRows.any { headerScore(it) >= 2 }
+    private fun findColumnX(row: List<OcrWord>, keyword: String): Int? {
+        return row.firstOrNull { it.text.contains(keyword) }?.let { (it.left + it.right) / 2 }
     }
 
     fun parse(words: List<OcrWord>): List<ParsedPrescriptionItem>? {
+        if (words.size < 10) return null
+
         val rows = clusterRows(words)
         if (rows.size < 2) return null
 
-        val headerRowIndex = rows.indices.maxByOrNull { headerScore(rows[it]) } ?: return null
-        if (headerScore(rows[headerRowIndex]) < 2) return null
+        // پیدا کردن سطر هدر
+        var headerIndex = -1
+        for (i in rows.indices) {
+            if (isHeaderRow(rows[i])) {
+                headerIndex = i
+                break
+            }
+        }
+        if (headerIndex == -1) return null
 
-        val anchors = detectColumnAnchors(rows[headerRowIndex]) ?: return null
+        val headerRow = rows[headerIndex]
         
-        // ✅ بررسی وجود ستون عنوان دارو
-        if (!anchors.containsKey("عنوان دارو")) return null
+        // پیدا کردن موقعیت ستون‌ها - همه را nullable بگیر
+        val colDrugNullable = findColumnX(headerRow, "عنوان")
+        val colDrug = colDrugNullable ?: findColumnX(headerRow, "دارو")
+        
+        // اگر ستون دارو پیدا نشد، خروجی
+        if (colDrug == null) return null
+        
+        // حالا colDrug از نوع Int است (غیر nullable)
+        val colCount = findColumnX(headerRow, "تعداد") ?: (colDrug + 200)
+        val colDose = findColumnX(headerRow, "مقادیر") ?: (colCount + 150)
+        val colTime = findColumnX(headerRow, "زمان") ?: (colDose + 150)
+        val colMethod = findColumnX(headerRow, "طریقه") ?: (colTime + 150)
 
         val items = mutableListOf<ParsedPrescriptionItem>()
-        
-        for (row in rows.drop(headerRowIndex + 1)) {
+        val columns = mapOf(
+            "drug" to colDrug,
+            "count" to colCount,
+            "dose" to colDose,
+            "time" to colTime,
+            "method" to colMethod
+        )
+
+        for (row in rows.drop(headerIndex + 1)) {
             if (row.size < 2) continue
 
+            // دسته‌بندی کلمات هر سطر بر اساس نزدیک‌ترین ستون
             val buckets = mutableMapOf<String, MutableList<OcrWord>>()
             for (word in row) {
                 val wx = centerX(word)
-                var nearestColumn = "سایر"
-                var minDist = Double.MAX_VALUE
-                
-                for ((key, x) in anchors) {
+                var bestKey = "other"
+                var bestDist = Double.MAX_VALUE
+                for ((key, x) in columns) {
                     val dist = abs(x - wx).toDouble()
-                    if (dist < minDist) {
-                        minDist = dist
-                        nearestColumn = key
+                    if (dist < bestDist) {
+                        bestDist = dist
+                        bestKey = key
                     }
                 }
-                
-                if (minDist < 300) {
-                    buckets.getOrPut(nearestColumn) { mutableListOf() }.add(word)
+                if (bestDist < 250) {
+                    buckets.getOrPut(bestKey) { mutableListOf() }.add(word)
                 }
             }
 
-            fun colText(key: String): String =
-                (buckets[key] ?: emptyList())
-                    .sortedBy { it.left }
-                    .joinToString(" ") { it.text }
+            fun getText(key: String): String {
+                return (buckets[key] ?: emptyList()).joinToString(" ") { it.text }.trim()
+            }
 
-            val drugNameRaw = colText("عنوان دارو").trim()
-            if (drugNameRaw.isBlank() || drugNameRaw.length < 2) continue
-            
-            val drugName = extractDrugName(drugNameRaw)
-            
-            val quantityText = colText("تعداد")
-            val quantity = TimeParseUtils.normalizeDigits(quantityText)
-                .filter { it.isDigit() }
-                .toIntOrNull()
+            val drugNameRaw = getText("drug")
+            if (drugNameRaw.isEmpty() || drugNameRaw.length < 2) continue
 
-            val doseText = colText("مقادیر مصرف")
-            val timingText = colText("زمان مصرف")
-            val methodText = colText("طریقه مصرف")
+            // پاک کردن اسم دارو از اعداد و اطلاعات اضافی
+            var drugName = drugNameRaw
+                .replace(Regex("\\([^)]*\\)"), "")
+                .replace(Regex("\\d+\\s*mg"), "")
+                .replace(Regex("\\d+\\s*[IU]"), "")
+                .replace(Regex("/\\d+"), "")
+                .replace(Regex("\\d+"), "")
+                .trim()
+            if (drugName.isEmpty()) drugName = drugNameRaw
 
-            val foodRelation = detectFoodRelation(methodText)
-            val (times, needsManual) = detectTimes(timingText, doseText)
+            val countText = getText("count")
+            val quantity = countText.replace(Regex("[^0-9]"), "").toIntOrNull()
+
+            val doseText = getText("dose")
+            val timeText = getText("time")
+            val methodText = getText("method")
+
+            // تشخیص ساعت‌ها
+            val fullText = "$timeText $doseText"
+            val times = when {
+                fullText.contains("هر ۲۴ ساعت") || fullText.contains("یک بار") -> 
+                    listOf(LocalTime.of(8, 0))
+                fullText.contains("سه بار") -> 
+                    listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0))
+                fullText.contains("دو بار") -> 
+                    listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
+                fullText.contains("هر دو هفته") || fullText.contains("طبق دستور") -> 
+                    listOf(LocalTime.of(8, 0))
+                else -> listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
+            }
+
+            // تشخیص رابطه با غذا
+            val foodRelation = when {
+                methodText.contains("معده خالی") || methodText.contains("قبل غذا") -> FoodRelation.BEFORE_FOOD
+                methodText.contains("همراه غذا") -> FoodRelation.WITH_FOOD
+                methodText.contains("بعد غذا") -> FoodRelation.AFTER_FOOD
+                else -> FoodRelation.NO_RELATION
+            }
 
             val note = buildString {
                 append("طبق نسخه: ")
-                if (doseText.isNotBlank()) append("دوز $doseText, ")
-                if (timingText.isNotBlank()) append("زمان $timingText, ")
-                if (methodText.isNotBlank()) append("طریق $methodText")
-                if (needsManual) {
-                    append("\n⚠️ نیاز به تنظیم دستی ساعت‌ها دارد")
-                }
+                if (doseText.isNotEmpty()) append("دوز $doseText, ")
+                if (timeText.isNotEmpty()) append("زمان $timeText, ")
+                if (methodText.isNotEmpty()) append("طریق $methodText")
             }
 
             items.add(
@@ -226,7 +172,7 @@ object TablePrescriptionParser {
                 )
             )
         }
-        
-        return items.ifEmpty { null }
+
+        return if (items.isEmpty()) null else items
     }
 }
