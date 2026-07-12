@@ -21,11 +21,19 @@ object TablePrescriptionParser {
 
     private val allHeaderKeywords = listOf("ردیف", "عنوان", "دارو", "تعداد", "مقادیر", "زمان", "طریقه", "مصرف")
 
-    private fun norm(s: String) = DrugKnowledgeBase.normalize(s)
+    private fun norm(s: String): String {
+        return s.trim()
+            .lowercase()
+            .replace("ي", "ی")
+            .replace("ك", "ک")
+            .replace("‌", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
 
     private fun centerX(w: OcrWord) = (w.left + w.right) / 2
     private fun centerY(w: OcrWord) = (w.top + w.bottom) / 2
-
+    
     private fun clusterRows(words: List<OcrWord>): List<List<OcrWord>> {
         if (words.isEmpty()) return emptyList()
         val sorted = words.sortedBy { centerY(it) }
