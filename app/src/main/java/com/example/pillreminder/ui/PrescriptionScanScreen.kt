@@ -53,9 +53,6 @@ private fun createCameraOutputUri(context: Context): Uri {
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
 
-// ---------------------------------------------------------------------------------
-// صفحه «اسکن نسخه»
-// ---------------------------------------------------------------------------------
 @Composable
 fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
     val context = LocalContext.current
@@ -74,7 +71,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                     PrescriptionScanState.ocrText = result.text
                     PrescriptionScanState.ocrWords = result.words
                     
-                    // ====== استفاده از Regex Parser جدید ======
+                    // ====== استفاده از Regex Parser ======
                     val regexItems = TableRegexParser.parse(result.text)
                     if (regexItems.isNotEmpty()) {
                         PrescriptionScanState.parsedItems = regexItems
@@ -82,7 +79,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                         val tableResult = TablePrescriptionParser.parse(result.words)
                         PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(result.text)
                     }
-                    // ==========================================
                 }
                 is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
                     PrescriptionScanState.errorMessage = result.message
@@ -102,10 +98,14 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
         PrescriptionScanState.ocrText = ""
         PrescriptionScanState.parsedItems = emptyList()
         PrescriptionScanState.addedItemIndices = emptySet()
-        if (bmp != null) runOcr(bmp) else PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
+        if (bmp != null) {
+            // ====== بدون پیش‌پردازش ======
+            runOcr(bmp)
+        } else {
+            PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
+        }
     }
 
-    // انتخاب از گالری
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? -> onImagePicked(uri) }
@@ -122,7 +122,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
         cameraLauncher.launch(uri)
     }
 
-    // مجوز دوربین
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted -> if (granted) launchCamera() else PrescriptionScanState.errorMessage = "برای گرفتن عکس، لازمه اجازه‌ی دسترسی به دوربین رو بدی." }
@@ -132,7 +131,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
         if (granted) launchCamera() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    // ====== تابع افزودن همه داروها ======
     fun addAllRemaining() {
         val itemsToAdd = PrescriptionScanState.parsedItems.withIndex()
             .filter { (index, _) -> index !in PrescriptionScanState.addedItemIndices }
@@ -156,7 +154,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
             }
         }
     }
-    // ==================================
 
     Scaffold(topBar = { TopAppBar(title = { Text("افزودن دارو از روی عکس نسخه") }) }) { padding ->
         Column(
@@ -166,8 +163,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 .verticalScroll(rememberScrollState())
         ) {
             Text(
-                "عکس نسخه رو انتخاب کن؛ متنش به‌صورت کاملاً آفلاین (بدون اینترنت) خونده می‌شه و داروهای " +
-                    "قابل‌تشخیص به‌صورت پیش‌نویس نشون داده می‌شن. حتماً قبل از ذخیره، ساعت و دوز هر کدوم رو بررسی کن.",
+                "عکس نسخه رو انتخاب کن؛ متنش به‌صورت کاملاً آفلاین (بدون اینترنت) خونده می‌شه.",
                 fontSize = 13.sp
             )
             Spacer(Modifier.height(12.dp))
@@ -212,12 +208,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
 
             if (PrescriptionScanState.ocrText.isNotBlank()) {
                 Spacer(Modifier.height(16.dp))
-                
-                Text(
-                    "متن خوانده‌شده (در صورت نیاز اصلاح کن)",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp
-                )
+                Text("متن خوانده‌شده (در صورت نیاز اصلاح کن)", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
                     value = PrescriptionScanState.ocrText,
@@ -228,7 +219,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        // ====== استفاده از Regex Parser ======
                         val regexItems = TableRegexParser.parse(PrescriptionScanState.ocrText)
                         if (regexItems.isNotEmpty()) {
                             PrescriptionScanState.parsedItems = regexItems
@@ -247,7 +237,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 Text("داروهای پیشنهادی (پیش‌نویس)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(8.dp))
                 
-                // ====== دکمه افزودن همه ======
                 val remainingCount = PrescriptionScanState.parsedItems.size - PrescriptionScanState.addedItemIndices.size
                 if (remainingCount > 1) {
                     Button(
@@ -260,14 +249,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                     ) { 
                         Text("➕ افزودن همه ($remainingCount مورد) با تنظیمات پیشنهادی") 
                     }
-                    Text(
-                        "این گزینه بدون بازبینی تک‌تک، همه رو با ساعت/دوز پیشنهادی ذخیره می‌کنه — بعداً از تب «داروها» می‌تونی هرکدوم رو ویرایش کنی.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
                 }
-                // ==============================
                 
                 PrescriptionScanState.parsedItems.forEachIndexed { index, item ->
                     val alreadyAdded = PrescriptionScanState.addedItemIndices.contains(index)
@@ -278,12 +260,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                     ) {
                         Column(Modifier.padding(14.dp)) {
                             Text(item.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            DrugKnowledgeBase.englishNameFor(item.name)?.let { en ->
-                                Text(en, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (item.formHint != null) {
-                                Text("شکل دارو: ${item.formHint}", fontSize = 12.sp)
-                            }
                             if (item.quantity != null) {
                                 Text("تعداد تجویزشده: ${item.quantity}", fontSize = 12.sp)
                             }
@@ -308,13 +284,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "⚠️ این‌ها فقط پیش‌نویس هستن؛ ممکنه OCR اسم یا تعداد رو اشتباه خونده باشه. حتماً قبل از " +
-                        "ذخیره‌ی نهایی هر دارو، ساعت‌ها و دوز رو در فرم بررسی و در صورت نیاز اصلاح کن.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.error
-                )
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = { PrescriptionScanState.reset() }, modifier = Modifier.fillMaxWidth()) {
                     Text("🗑 شروع دوباره با عکس جدید")
