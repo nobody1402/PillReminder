@@ -102,7 +102,7 @@ fun AppNav(nav: NavHostController, repo: PillRepository) {
         composable("rules") { InteractionRulesScreen(nav, repo) }
         composable("history") { HistoryScreen(nav, repo) }
         composable("settings") { SettingsScreen(nav) }
-        composable("scanPrescription") { PrescriptionScanScreen(nav) } // ✅ اصلاح شد: repo حذف شد
+        composable("scanPrescription") { PrescriptionScanScreen(nav, repo) }
     }
 }
 
