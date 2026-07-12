@@ -79,7 +79,6 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                     if (regexItems.isNotEmpty()) {
                         PrescriptionScanState.parsedItems = regexItems
                     } else {
-                        // اگر Regex جواب نداد، از پارسر جدول استفاده کن
                         val tableResult = TablePrescriptionParser.parse(result.words)
                         PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(result.text)
                     }
@@ -214,22 +213,8 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
             if (PrescriptionScanState.ocrText.isNotBlank()) {
                 Spacer(Modifier.height(16.dp))
                 
-                // تشخیص فرمت جدول
-                val isTableFormat = remember(PrescriptionScanState.ocrWords) {
-                    TablePrescriptionParser.looksLikeTable(PrescriptionScanState.ocrWords)
-                }
-                
-                if (isTableFormat) {
-                    Text(
-                        "📋 این عکس شبیه فرمت جدولیِ سامانه نسخه الکترونیک تشخیص داده شد.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                
                 Text(
-                    if (isTableFormat) "متن خوانده‌شده (ویرایش این متن روی نتیجه اثر نداره)" else "متن خوانده‌شده (در صورت نیاز اصلاح کن)",
+                    "متن خوانده‌شده (در صورت نیاز اصلاح کن)",
                     fontWeight = FontWeight.Medium,
                     fontSize = 14.sp
                 )
@@ -243,12 +228,11 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        // اول با Regex Parser امتحان کن
+                        // ====== استفاده از Regex Parser ======
                         val regexItems = TableRegexParser.parse(PrescriptionScanState.ocrText)
                         if (regexItems.isNotEmpty()) {
                             PrescriptionScanState.parsedItems = regexItems
                         } else {
-                            // اگر Regex جواب نداد، از پارسر جدول استفاده کن
                             val tableResult = TablePrescriptionParser.parse(PrescriptionScanState.ocrWords)
                             PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(PrescriptionScanState.ocrText)
                         }
