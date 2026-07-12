@@ -57,7 +57,7 @@ private fun createCameraOutputUri(context: Context): Uri {
 // صفحه «اسکن نسخه»
 // ---------------------------------------------------------------------------------
 @Composable
-fun PrescriptionScanScreen(nav: NavHostController) {
+fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -73,6 +73,16 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 is PrescriptionOcrEngine.OcrResult.Success -> {
                     PrescriptionScanState.ocrText = result.text
                     PrescriptionScanState.ocrWords = result.words
+                    
+                    // ====== تلاش برای تشخیص با پارسر جدول ======
+                    val tableResult = TablePrescriptionParser.parse(result.words)
+                    if (tableResult != null && tableResult.isNotEmpty()) {
+                        PrescriptionScanState.parsedItems = tableResult
+                    } else {
+                        // اگر جدول تشخیص داده نشد، از پارسر خطی استفاده کن
+                        PrescriptionScanState.parsedItems = PrescriptionParser.parse(result.text)
+                    }
+                    // ==========================================
                 }
                 is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
                     PrescriptionScanState.errorMessage = result.message
@@ -121,6 +131,32 @@ fun PrescriptionScanScreen(nav: NavHostController) {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         if (granted) launchCamera() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
+
+    // ====== تابع افزودن همه داروها ======
+    fun addAllRemaining() {
+        val itemsToAdd = PrescriptionScanState.parsedItems.withIndex()
+            .filter { (index, _) -> index !in PrescriptionScanState.addedItemIndices }
+        if (itemsToAdd.isEmpty()) return
+        scope.launch {
+            val allPills = repo.getAllPillsSnapshot()
+            for ((index, item) in itemsToAdd) {
+                val pill = Pill(
+                    name = item.name,
+                    doseAmount = item.suggestedDoseAmount,
+                    foodRelation = item.recognizedRule?.foodRelation ?: FoodRelation.NO_RELATION,
+                    waitAfterMinutes = item.recognizedRule?.waitAfterMinutes ?: 0,
+                    timesOfDay = item.suggestedTimesOfDay.sorted().joinToString(",") { TimeParseUtils.formatTime(it) },
+                    startDateEpochDay = LocalDate.now().toEpochDay(),
+                    treatmentDurationDays = null,
+                    inventoryCount = null,
+                    lowStockThresholdDays = 3
+                )
+                repo.addOrUpdatePill(pill, allPills, emptyList())
+                PrescriptionScanState.addedItemIndices = PrescriptionScanState.addedItemIndices + index
+            }
+        }
+    }
+    // ==================================
 
     Scaffold(topBar = { TopAppBar(title = { Text("افزودن دارو از روی عکس نسخه") }) }) { padding ->
         Column(
@@ -219,6 +255,28 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 Spacer(Modifier.height(20.dp))
                 Text("داروهای پیشنهادی (پیش‌نویس)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(8.dp))
+                
+                // ====== دکمه افزودن همه ======
+                val remainingCount = PrescriptionScanState.parsedItems.size - PrescriptionScanState.addedItemIndices.size
+                if (remainingCount > 1) {
+                    Button(
+                        onClick = { addAllRemaining() },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary
+                        )
+                    ) { 
+                        Text("➕ افزودن همه ($remainingCount مورد) با تنظیمات پیشنهادی") 
+                    }
+                    Text(
+                        "این گزینه بدون بازبینی تک‌تک، همه رو با ساعت/دوز پیشنهادی ذخیره می‌کنه — بعداً از تب «داروها» می‌تونی هرکدوم رو ویرایش کنی.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
+                // ==============================
                 
                 PrescriptionScanState.parsedItems.forEachIndexed { index, item ->
                     val alreadyAdded = PrescriptionScanState.addedItemIndices.contains(index)
