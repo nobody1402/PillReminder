@@ -70,15 +70,9 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 is PrescriptionOcrEngine.OcrResult.Success -> {
                     PrescriptionScanState.ocrText = result.text
                     PrescriptionScanState.ocrWords = result.words
-                    
-                    // ====== استفاده از Regex Parser ======
-                    val regexItems = TableRegexParser.parse(result.text)
-                    if (regexItems.isNotEmpty()) {
-                        PrescriptionScanState.parsedItems = regexItems
-                    } else {
-                        val tableResult = TablePrescriptionParser.parse(result.words)
-                        PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(result.text)
-                    }
+                }
+                is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
+                    PrescriptionScanState.errorMessage = result.message
                 }
                 is PrescriptionOcrEngine.OcrResult.Error -> {
                     PrescriptionScanState.errorMessage = result.message
@@ -215,13 +209,8 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        val regexItems = TableRegexParser.parse(PrescriptionScanState.ocrText)
-                        if (regexItems.isNotEmpty()) {
-                            PrescriptionScanState.parsedItems = regexItems
-                        } else {
-                            val tableResult = TablePrescriptionParser.parse(PrescriptionScanState.ocrWords)
-                            PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(PrescriptionScanState.ocrText)
-                        }
+                        val tableResult = TablePrescriptionParser.parse(PrescriptionScanState.ocrWords)
+                        PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(PrescriptionScanState.ocrText)
                         PrescriptionScanState.addedItemIndices = emptySet()
                     },
                     modifier = Modifier.fillMaxWidth()
