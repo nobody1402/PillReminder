@@ -12,7 +12,7 @@ data class OcrWord(val text: String, val left: Int, val top: Int, val right: Int
 
 object PrescriptionOcrEngine {
 
-    // ====== تغییر: فقط انگلیسی ======
+    // ====== استفاده از انگلیسی + ساده ======
     private const val LANGUAGES = "eng"
     private val requiredFiles = listOf("eng.traineddata")
 
@@ -49,28 +49,20 @@ object PrescriptionOcrEngine {
     suspend fun recognize(context: Context, bitmap: Bitmap): OcrResult = withContext(Dispatchers.Default) {
         if (!ensureLanguageDataCopied(context)) {
             return@withContext OcrResult.MissingLanguageData(
-                "فایل زبان OCR (eng.traineddata) پیدا نشد. باید این فایل رو از " +
-                    "مخزن رسمی tesseract-ocr/tessdata_fast دانلود کرده و در مسیر " +
-                    "app/src/main/assets/tessdata/ قرار بدی."
+                "فایل زبان OCR (eng.traineddata) پیدا نشد."
             )
         }
         
-        val processedBitmap = try {
-            ImagePreprocessor.prepareForOcr(bitmap)
-        } catch (e: Exception) {
-            bitmap
-        }
-
+        // ====== بدون پیش‌پردازش ======
         val api = TessBaseAPI()
         return@withContext try {
             val ok = api.init(tessDataDir(context).absolutePath, LANGUAGES)
             if (!ok) {
                 OcrResult.Error("راه‌اندازی OCR ناموفق بود.")
             } else {
-                // ====== تغییر: حالت خودکار برای تشخیص بهتر جدول ======
-                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
-                api.setVariable("preserve_interword_spaces", "1")
-                api.setImage(processedBitmap)
+                // ====== حالت SINGLE_BLOCK برای متن روان ======
+                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
+                api.setImage(bitmap)
 
                 val text = api.getUTF8Text() ?: ""
 
