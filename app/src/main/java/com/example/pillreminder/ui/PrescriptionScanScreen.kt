@@ -99,7 +99,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
         PrescriptionScanState.parsedItems = emptyList()
         PrescriptionScanState.addedItemIndices = emptySet()
         if (bmp != null) {
-            // ====== بدون پیش‌پردازش ======
+            // ====== بدون هیچ پیش‌پردازشی ======
             runOcr(bmp)
         } else {
             PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
