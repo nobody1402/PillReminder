@@ -29,9 +29,19 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.navigation.NavHostController
-import com.example.pillreminder.util.*
+import com.example.pillreminder.data.FoodRelation
+import com.example.pillreminder.data.Pill
+import com.example.pillreminder.data.PillRepository
+import com.example.pillreminder.util.DrugPrefillState
+import com.example.pillreminder.util.OcrWord
+import com.example.pillreminder.util.TablePrescriptionParser
+import com.example.pillreminder.util.PrescriptionOcrEngine
+import com.example.pillreminder.util.PrescriptionParser
+import com.example.pillreminder.util.PrescriptionScanState
+import com.example.pillreminder.util.TimeParseUtils
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.LocalDate
 
 private fun uriToBitmap(context: Context, uri: Uri): Bitmap? = runCatching {
     if (Build.VERSION.SDK_INT >= 28) {
@@ -56,7 +66,7 @@ private fun createCameraOutputUri(context: Context): Uri {
 // وقتی یک دارو رو ذخیره می‌کنی و برمی‌گردی، بقیه‌ی داروهای تشخیص‌داده‌شده هنوز باشن.
 // ---------------------------------------------------------------------------------
 @Composable
-fun PrescriptionScanScreen(nav: NavHostController) {
+fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -71,19 +81,7 @@ fun PrescriptionScanScreen(nav: NavHostController) {
             when (val result = PrescriptionOcrEngine.recognize(context, bitmap)) {
                 is PrescriptionOcrEngine.OcrResult.Success -> {
                     PrescriptionScanState.ocrText = result.text
-
-                    // ========== استفاده از پارسر با مختصات کلمات ==========
-                    val parsedItems = PrescriptionParser.parse(result.text, result.words)
-                    PrescriptionScanState.parsedItems = parsedItems
-                    // ====================================================
-
-                    // دیباگ در Logcat
-                    android.util.Log.d("OCR_DEBUG", "Text: ${result.text}")
-                    android.util.Log.d("OCR_DEBUG", "Words count: ${result.words.size}")
-                    android.util.Log.d("OCR_DEBUG", "Parsed items: ${parsedItems.size}")
-                    parsedItems.forEachIndexed { index, item ->
-                        android.util.Log.d("OCR_DEBUG", "Item $index: ${item.name} - ${item.suggestedTimesOfDay}")
-                    }
+                    PrescriptionScanState.ocrWords = result.words
                 }
                 is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
                     PrescriptionScanState.errorMessage = result.message
@@ -103,13 +101,7 @@ fun PrescriptionScanScreen(nav: NavHostController) {
         PrescriptionScanState.ocrText = ""
         PrescriptionScanState.parsedItems = emptyList()
         PrescriptionScanState.addedItemIndices = emptySet()
-        if (bmp != null) {
-            // پیش‌پردازش تصویر برای OCR بهتر
-            val processedBitmap = ImagePreprocessor.prepareForOcr(bmp)
-            runOcr(processedBitmap)
-        } else {
-            PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
-        }
+        if (bmp != null) runOcr(bmp) else PrescriptionScanState.errorMessage = "خواندن عکس ممکن نشد."
     }
 
     // انتخاب از گالری با انتخاب‌گر عمومی سیستم (به دسترسی ذخیره‌سازی نیازی نداره و روی
@@ -138,6 +130,27 @@ fun PrescriptionScanScreen(nav: NavHostController) {
     fun onCameraButtonClick() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         if (granted) launchCamera() else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    fun addAllRemaining() {
+        val itemsToAdd = PrescriptionScanState.parsedItems.withIndex()
+            .filter { (index, _) -> index !in PrescriptionScanState.addedItemIndices }
+        if (itemsToAdd.isEmpty()) return
+        scope.launch {
+            val allPills = repo.getAllPillsSnapshot()
+            for ((index, item) in itemsToAdd) {
+                val pill = Pill(
+                    name = item.name,
+                    doseAmount = item.suggestedDoseAmount,
+                    foodRelation = item.recognizedRule?.foodRelation ?: FoodRelation.NO_RELATION,
+                    waitAfterMinutes = item.recognizedRule?.waitAfterMinutes ?: 0,
+                    timesOfDay = item.suggestedTimesOfDay.sorted().joinToString(",") { TimeParseUtils.formatTime(it) },
+                    startDateEpochDay = LocalDate.now().toEpochDay()
+                )
+                repo.addOrUpdatePill(pill, allPills, emptyList())
+                PrescriptionScanState.addedItemIndices = PrescriptionScanState.addedItemIndices + index
+            }
+        }
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("افزودن دارو از روی عکس نسخه") }) }) { padding ->
@@ -194,7 +207,22 @@ fun PrescriptionScanScreen(nav: NavHostController) {
 
             if (PrescriptionScanState.ocrText.isNotBlank()) {
                 Spacer(Modifier.height(16.dp))
-                Text("متن خوانده‌شده (در صورت نیاز اصلاح کن)", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                val isTableFormat = remember(PrescriptionScanState.ocrWords) {
+                    TablePrescriptionParser.looksLikeTable(PrescriptionScanState.ocrWords)
+                }
+                if (isTableFormat) {
+                    Text(
+                        "📋 این عکس شبیه فرمت جدولیِ سامانه نسخه الکترونیک (مثلاً تامین‌اجتماعی) تشخیص داده شد.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                Text(
+                    if (isTableFormat) "متن خوانده‌شده (برای این فرمت، ویرایش این متن روی نتیجه اثر نداره)" else "متن خوانده‌شده (در صورت نیاز اصلاح کن)",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp
+                )
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
                     value = PrescriptionScanState.ocrText,
@@ -205,8 +233,8 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        // وقتی کاربر دستی متن رو اصلاح می‌کنه، از پارسر خطی استفاده می‌کنیم (چون مختصات نداریم)
-                        PrescriptionScanState.parsedItems = PrescriptionParser.parse(PrescriptionScanState.ocrText)
+                        val tableResult = TablePrescriptionParser.parse(PrescriptionScanState.ocrWords)
+                        PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(PrescriptionScanState.ocrText)
                         PrescriptionScanState.addedItemIndices = emptySet()
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -217,11 +245,35 @@ fun PrescriptionScanScreen(nav: NavHostController) {
                 Spacer(Modifier.height(20.dp))
                 Text("داروهای پیشنهادی (پیش‌نویس)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Spacer(Modifier.height(8.dp))
+                val remainingCount = PrescriptionScanState.parsedItems.size - PrescriptionScanState.addedItemIndices.size
+                if (remainingCount > 1) {
+                    Button(
+                        onClick = { addAllRemaining() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary,
+                            contentColor = MaterialTheme.colorScheme.onSecondary
+                        )
+                    ) { Text("➕ افزودن همه ($remainingCount مورد) با تنظیمات پیشنهادی") }
+                    Text(
+                        "این گزینه بدون بازبینی تک‌تک، همه رو با ساعت/دوز پیشنهادی ذخیره می‌کنه — بعداً از تب «داروها» می‌تونی هرکدوم رو ویرایش کنی.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    )
+                }
                 PrescriptionScanState.parsedItems.forEachIndexed { index, item ->
                     val alreadyAdded = PrescriptionScanState.addedItemIndices.contains(index)
-                    Card(Modifier.fillMaxWidth().padding(vertical = 6.dp), shape = RoundedCornerShape(14.dp)) {
+                    Card(
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+                    ) {
                         Column(Modifier.padding(14.dp)) {
                             Text(item.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            com.example.pillreminder.util.DrugKnowledgeBase.englishNameFor(item.name)?.let { en ->
+                                Text(en, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             if (item.formHint != null) {
                                 Text("شکل دارو: ${item.formHint}", fontSize = 12.sp)
                             }
