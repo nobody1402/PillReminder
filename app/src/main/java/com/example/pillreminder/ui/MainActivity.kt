@@ -633,57 +633,116 @@ fun AddEditPillScreen(nav: NavHostController, repo: PillRepository, existing: Pi
             } // پایان مرحله ۲: دوز و غذا
 
             if (showStep(2)) {
-            Spacer(Modifier.height(8.dp))
-            Text("ساعات مصرف")
-            Text("میان‌بر: چند بار در روز؟", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(Modifier.horizontalScrollSafe()) {
-                AssistChip(
-                    onClick = { timesList = listOf(java.time.LocalTime.of(8, 0)) },
-                    label = { Text("روزی ۱ بار") },
-                    modifier = Modifier.padding(end = 6.dp)
-                )
-                AssistChip(
-                    onClick = { timesList = listOf(java.time.LocalTime.of(8, 0), java.time.LocalTime.of(20, 0)) },
-                    label = { Text("روزی ۲ بار") },
-                    modifier = Modifier.padding(end = 6.dp)
-                )
-                AssistChip(
-                    onClick = {
-                        timesList = listOf(java.time.LocalTime.of(8, 0), java.time.LocalTime.of(14, 0), java.time.LocalTime.of(20, 0))
-                    },
-                    label = { Text("روزی ۳ بار") },
-                    modifier = Modifier.padding(end = 6.dp)
-                )
-                AssistChip(
-                    onClick = {
-                        timesList = listOf(java.time.LocalTime.of(8, 0), java.time.LocalTime.of(16, 0), java.time.LocalTime.of(0, 0))
-                    },
-                    label = { Text("هر ۸ ساعت") }
+    Spacer(Modifier.height(8.dp))
+    Text("ساعات مصرف", fontWeight = FontWeight.Bold)
+    
+    // ====== ویرایش ساعت اول ======
+    var editStartTime by remember { mutableStateOf(false) }
+    
+    if (timesList.isNotEmpty()) {
+        Text(
+            "ساعت شروع (با تغییر این ساعت، بقیه ساعت‌ها اتوماتیک تنظیم می‌شوند)", 
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AssistChip(
+                onClick = { editStartTime = true },
+                label = { Text(TimeParseUtils.formatTime(timesList.first())) },
+                modifier = Modifier.padding(end = 6.dp)
+            )
+            if (timesList.size > 1) {
+                Text(
+                    "و بقیه: ${timesList.drop(1).joinToString(", ") { TimeParseUtils.formatTime(it) }}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            var showTimePicker by remember { mutableStateOf(false) }
-            Row(modifier = Modifier.fillMaxWidth()) {
-                timesList.sorted().forEach { t ->
-                    AssistChip(
-                        onClick = { timesList = timesList.filter { it != t } },
-                        label = { Text("${TimeParseUtils.formatTime(t)}  ✕") },
-                        modifier = Modifier.padding(end = 6.dp)
-                    )
-                }
-                AssistChip(onClick = { showTimePicker = true }, label = { Text("+ افزودن ساعت") })
-            }
-            if (showTimePicker) {
-                TimePickerDialog(
-                    initial = java.time.LocalTime.of(8, 0),
-                    onDismiss = { showTimePicker = false },
-                    onConfirm = { picked ->
-                        if (timesList.none { it == picked }) timesList = timesList + picked
-                        showTimePicker = false
+        }
+        Spacer(Modifier.height(8.dp))
+        
+        if (editStartTime) {
+            TimePickerDialog(
+                initial = timesList.first(),
+                onDismiss = { editStartTime = false },
+                onConfirm = { picked ->
+                    // محاسبه فاصله بین ساعت‌ها
+                    val interval = if (timesList.size > 1) {
+                        val first = timesList.first()
+                        val second = timesList[1]
+                        val diffMinutes = (second.hour - first.hour) * 60 + (second.minute - first.minute)
+                        if (diffMinutes > 0) diffMinutes else 480
+                    } else {
+                        0
                     }
-                )
+                    
+                    // ساخت ساعت‌های جدید بر اساس ساعت انتخابی
+                    val newTimes = mutableListOf(picked)
+                    var current = picked
+                    for (i in 1 until timesList.size) {
+                        current = current.plusMinutes(interval.toLong())
+                        if (current.hour >= 24) {
+                            current = current.minusHours(24)
+                        }
+                        newTimes.add(current)
+                    }
+                    timesList = newTimes.sorted()
+                    editStartTime = false
+                }
+            )
+        }
+    }
+    
+    Spacer(Modifier.height(8.dp))
+    Text("میان‌بر: چند بار در روز؟", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.horizontalScrollSafe()) {
+        AssistChip(
+            onClick = { timesList = listOf(java.time.LocalTime.of(8, 0)) },
+            label = { Text("روزی ۱ بار") },
+            modifier = Modifier.padding(end = 6.dp)
+        )
+        AssistChip(
+            onClick = { timesList = listOf(java.time.LocalTime.of(8, 0), java.time.LocalTime.of(20, 0)) },
+            label = { Text("روزی ۲ بار") },
+            modifier = Modifier.padding(end = 6.dp)
+        )
+        AssistChip(
+            onClick = {
+                timesList = listOf(java.time.LocalTime.of(8, 0), java.time.LocalTime.of(14, 0), java.time.LocalTime.of(20, 0))
+            },
+            label = { Text("روزی ۳ بار") },
+            modifier = Modifier.padding(end = 6.dp)
+        )
+        AssistChip(
+            onClick = {
+                timesList = listOf(java.time.LocalTime.of(8, 0), java.time.LocalTime.of(16, 0), java.time.LocalTime.of(0, 0))
+            },
+            label = { Text("هر ۸ ساعت") }
+        )
+    }
+    Spacer(Modifier.height(6.dp))
+    var showTimePicker by remember { mutableStateOf(false) }
+    Row(modifier = Modifier.fillMaxWidth()) {
+        timesList.sorted().forEach { t ->
+            AssistChip(
+                onClick = { timesList = timesList.filter { it != t } },
+                label = { Text("${TimeParseUtils.formatTime(t)}  ✕") },
+                modifier = Modifier.padding(end = 6.dp)
+            )
+        }
+        AssistChip(onClick = { showTimePicker = true }, label = { Text("+ افزودن ساعت") })
+    }
+    if (showTimePicker) {
+        TimePickerDialog(
+            initial = java.time.LocalTime.of(8, 0),
+            onDismiss = { showTimePicker = false },
+            onConfirm = { picked ->
+                if (timesList.none { it == picked }) timesList = timesList + picked
+                showTimePicker = false
             }
-            } // پایان مرحله ۳: ساعت‌های مصرف
+        )
+    }
+} // پایان مرحله ۳: ساعت‌های مصرف
 
             if (showStep(3)) {
             Spacer(Modifier.height(8.dp))
