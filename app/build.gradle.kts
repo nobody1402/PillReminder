@@ -61,11 +61,8 @@ dependencies {
     // Image loading for pill photo thumbnail
     implementation("io.coil-kt:coil-compose:2.6.0")
 
-    // ====== Google ML Kit برای OCR (جایگزین Tesseract) ======
-    implementation("com.google.mlkit:text-recognition:16.0.0")
-    // ======================================================
-
-    // OCR آفلاین برای خواندن عکس نسخه (فارسی) — نیازمند فایل fas.traineddata در assets/tessdata
-    // فعلاً نگه دار، بعداً می‌توانی حذفش کنی
+    // OCR آفلاین برای خواندن عکس نسخه (فارسی+انگلیسی) — نیازمند فایل‌های fas.traineddata و
+    // eng.traineddata در assets/tessdata. (ML Kit عمداً استفاده نشده چون از خط فارسی/عربی
+    // پشتیبانی نمی‌کنه.)
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
 }
