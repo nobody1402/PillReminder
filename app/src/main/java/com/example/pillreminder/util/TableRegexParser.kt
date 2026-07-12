@@ -17,10 +17,6 @@ object TableRegexParser {
         val items = mutableListOf<ParsedPrescriptionItem>()
         
         // ====== الگوی اصلی برای هر دارو ======
-        // مثال: "۱ ADULT COLD PREPARATIONS (4-4) 325 mg/10 mg/25 mg TABLET ۲۰ -یک عدد سه بار در روز"
-        // مثال: "۲ VITAMIN D3 50000 [IU] CAPSULE, LIQUID FILLED ORAL ۲۰ -یک عدد هر دو هفته یک بار"
-        // مثال: "۴ PENICILLIN 6-3-3 600000 [IU]/300000 [IU]/300000 [IU] ۲ -یک عدد هر ۲۴ ساعت"
-        
         val pattern = Regex(
             """(\d+)\s+""" +  // شماره ردیف
             """([A-Za-z0-9\s\/\(\)\[\],\-]+?)""" +  // نام دارو
