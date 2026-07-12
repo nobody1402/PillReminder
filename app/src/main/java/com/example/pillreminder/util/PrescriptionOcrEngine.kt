@@ -8,28 +8,13 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
-/** یک کلمه‌ی خونده‌شده به همراه مختصات دقیقش روی عکس — برای بازسازی جدول لازمه */
 data class OcrWord(val text: String, val left: Int, val top: Int, val right: Int, val bottom: Int)
 
-/**
- * موتور OCR کاملاً آفلاین (بدون نیاز به اینترنت) برای خواندن متن نسخه، با Tesseract4Android.
- *
- * از ترکیب زبان فارسی + انگلیسی («fas+eng») استفاده می‌کنیم چون نسخه‌ها معمولاً اسم
- * برند دارو رو با حروف انگلیسی دارن (مثل Apotel) وسط یک خط فارسی؛ اگر فقط مدل فارسی
- * بارگذاری بشه، این کلمات انگلیسی رو اشتباه به اعداد/حروف فارسی تبدیل می‌کنه.
- *
- * علاوه بر متن ساده، مختصات دقیق هر کلمه (bounding box) رو هم برمی‌گردونیم؛ چون فرمت‌های
- * جدولی (مثل سامانه نسخه الکترونیک) رو فقط از روی متن خام نمی‌شه بازسازی کرد — باید بر
- * اساس موقعیت هر کلمه، ردیف‌ها و ستون‌ها رو دوباره ساخت (TablePrescriptionParser همین کارو می‌کنه).
- *
- * نکته نصب: هر دو فایل fas.traineddata و eng.traineddata باید از قبل در مسیر
- * app/src/main/assets/tessdata/ قرار داده شده باشند (به دلیل حجم بالا، این فایل‌ها باید
- * دستی از مخزن رسمی tesseract-ocr/tessdata_fast دانلود و در پروژه کپی شوند).
- */
 object PrescriptionOcrEngine {
 
-    private const val LANGUAGES = "fas+eng"
-    private val requiredFiles = listOf("fas.traineddata", "eng.traineddata")
+    // ====== تغییر: فقط انگلیسی ======
+    private const val LANGUAGES = "eng"
+    private val requiredFiles = listOf("eng.traineddata")
 
     sealed class OcrResult {
         data class Success(val text: String, val words: List<OcrWord> = emptyList()) : OcrResult()
@@ -40,7 +25,6 @@ object PrescriptionOcrEngine {
     private fun tessDataDir(context: Context): File =
         File(context.filesDir, "tesseract")
 
-    /** فایل‌های زبان رو یک‌بار از assets به مسیر قابل‌خواندن توسط Tesseract کپی می‌کند */
     private fun ensureLanguageDataCopied(context: Context): Boolean {
         val tessdataSubDir = File(tessDataDir(context), "tessdata")
         if (!tessdataSubDir.exists()) tessdataSubDir.mkdirs()
@@ -62,15 +46,15 @@ object PrescriptionOcrEngine {
         return allOk
     }
 
-    /** عکس نسخه رو می‌گیره و متن + مختصات کلمات رو برمی‌گردونه؛ کاملاً روی خود گوشی، بدون اینترنت */
     suspend fun recognize(context: Context, bitmap: Bitmap): OcrResult = withContext(Dispatchers.Default) {
         if (!ensureLanguageDataCopied(context)) {
             return@withContext OcrResult.MissingLanguageData(
-                "فایل‌های زبان OCR (fas.traineddata و eng.traineddata) پیدا نشدن. باید این دو فایل رو یک‌بار از " +
+                "فایل زبان OCR (eng.traineddata) پیدا نشد. باید این فایل رو از " +
                     "مخزن رسمی tesseract-ocr/tessdata_fast دانلود کرده و در مسیر " +
-                    "app/src/main/assets/tessdata/ قرار بدی تا خواندن نسخه درست کار کنه."
+                    "app/src/main/assets/tessdata/ قرار بدی."
             )
         }
+        
         val processedBitmap = try {
             ImagePreprocessor.prepareForOcr(bitmap)
         } catch (e: Exception) {
@@ -83,13 +67,11 @@ object PrescriptionOcrEngine {
             if (!ok) {
                 OcrResult.Error("راه‌اندازی OCR ناموفق بود.")
             } else {
-                // یک بلوک متنی یکپارچه فرض کن (نه چند ستون)؛ باعث می‌شه خط‌های کم‌رنگ یا
-                // کنار هم رو کمتر جا بندازه نسبت به حالت خودکار پیش‌فرض
-                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
+                // ====== تغییر: حالت خودکار برای تشخیص بهتر جدول ======
+                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 api.setVariable("preserve_interword_spaces", "1")
                 api.setImage(processedBitmap)
 
-                // getUTF8Text() باید قبل از گرفتن ایتریتور صدا زده بشه، وگرنه نتایج خالیه
                 val text = api.getUTF8Text() ?: ""
 
                 val words = mutableListOf<OcrWord>()
