@@ -264,13 +264,8 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                     ) {
                         Column(Modifier.padding(14.dp)) {
                             Text(item.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            if (item.quantity != null) {
-                                Text("تعداد تجویزشده: ${item.quantity}", fontSize = 12.sp)
-                            }
-                            Text(
-                                "ساعت‌های پیشنهادی: ${item.suggestedTimesOfDay.joinToString("، ") { TimeParseUtils.formatTime(it) }}",
-                                fontSize = 12.sp
-                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(item.readableSummary(), fontSize = 12.sp)
                             item.recognizedRule?.let { rule ->
                                 Spacer(Modifier.height(4.dp))
                                 Text("🧠 ${rule.note}", fontSize = 12.sp)
