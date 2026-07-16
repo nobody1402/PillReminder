@@ -439,6 +439,8 @@ fun AddEditPillScreen(nav: NavHostController, repo: PillRepository, existing: Pi
                 if (item.suggestedTimesOfDay.isNotEmpty()) timesList = item.suggestedTimesOfDay
                 item.recognizedRule?.foodRelation?.let { foodRelation = it }
                 item.recognizedRule?.waitAfterMinutes?.let { if (it > 0) waitAfter = it.toString() }
+                item.suggestedTreatmentDurationDays?.let { durationDays = it.toString() }
+                item.suggestedInventoryCount?.let { inventory = it.toString() }
                 DrugPrefillState.pending = null
             }
         }
@@ -676,17 +678,11 @@ fun AddEditPillScreen(nav: NavHostController, repo: PillRepository, existing: Pi
                         0
                     }
                     
-                    // ساخت ساعت‌های جدید بر اساس ساعت انتخابی
-                    val newTimes = mutableListOf(picked)
-                    var current = picked
-                    for (i in 1 until timesList.size) {
-                        current = current.plusMinutes(interval.toLong())
-                        if (current.hour >= 24) {
-                            current = current.minusHours(24)
-                        }
-                        newTimes.add(current)
+                    // ساخت ساعت‌های جدید بر اساس ساعت انتخابی؛ ترتیب از ساعت شروع حفظ می‌شود
+                    // تا اگر کاربر ۹ صبح را انتخاب کرد، برنامه به شکل 09:00، 17:00، 01:00 بماند.
+                    timesList = (0 until timesList.size).map { i ->
+                        picked.plusMinutes((interval * i).toLong())
                     }
-                    timesList = newTimes.sorted()
                     editStartTime = false
                 }
             )
