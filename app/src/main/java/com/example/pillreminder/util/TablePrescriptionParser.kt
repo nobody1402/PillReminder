@@ -93,6 +93,75 @@ object TablePrescriptionParser {
         return if (result.size >= 3) result else null
     }
 
+    private fun normalizedInteger(text: String): Int? =
+        TimeParseUtils.normalizeDigits(norm(text)).filter { it.isDigit() }.toIntOrNull()
+
+    private fun columnHalfWidth(column: String, anchors: Map<String, Int>): Int {
+        val x = anchors[column] ?: return Int.MAX_VALUE
+        val nearestNeighborDistance = anchors
+            .filterKeys { it != column }
+            .values
+            .minOfOrNull { abs(it - x) }
+            ?: return Int.MAX_VALUE
+        return (nearestNeighborDistance / 2).coerceAtLeast(1)
+    }
+
+    /**
+     * یک قلم نسخه در جدول رسمی معمولاً چند خط OCR دارد (عنوان دارو، تعداد، دوز، زمان و طریقه
+     * مصرف هرکدام ممکن است روی خط جدا بیفتند). بنابراین نباید هر خط تصویری را یک دارو حساب کنیم.
+     * این تابع با ستون «ردیف» محدوده‌ی عمودی هر قلم را پیدا می‌کند و همه‌ی خط‌های داخل آن محدوده
+     * را به یک رکورد واحد تبدیل می‌کند.
+     */
+    private fun groupDataRecords(
+        rows: List<List<OcrWord>>,
+        headerRowIndex: Int,
+        anchors: Map<String, Int>
+    ): List<List<OcrWord>> {
+        val dataWords = rows.drop(headerRowIndex + 1).flatten()
+        if (dataWords.isEmpty()) return emptyList()
+
+        val radifX = anchors["ردیف"]
+        if (radifX == null) return rows.drop(headerRowIndex + 1)
+        val radifHalfWidth = columnHalfWidth("ردیف", anchors)
+        val rowNumberWords = dataWords
+            .filter { abs(centerX(it) - radifX) <= radifHalfWidth }
+            .mapNotNull { word -> normalizedInteger(word.text)?.takeIf { it in 1..99 }?.let { it to word } }
+            .sortedWith(compareBy<Pair<Int, OcrWord>> { centerY(it.second) }.thenBy { it.first })
+
+        if (rowNumberWords.size < 2) return rows.drop(headerRowIndex + 1)
+
+        val starts = rowNumberWords.map { centerY(it.second) }
+        return starts.mapIndexed { index, startY ->
+            val previousStart = starts.getOrNull(index - 1)
+            val nextStart = starts.getOrNull(index + 1)
+            val topBoundary = previousStart?.let { (it + startY) / 2 } ?: Int.MIN_VALUE
+            val bottomBoundary = nextStart?.let { (startY + it) / 2 } ?: Int.MAX_VALUE
+            dataWords.filter { centerY(it) in topBoundary until bottomBoundary }
+        }.filter { it.isNotEmpty() }
+    }
+
+    private fun bucketByColumn(words: List<OcrWord>, anchors: Map<String, Int>): Map<String, List<OcrWord>> {
+        val buckets = mutableMapOf<String, MutableList<OcrWord>>()
+        for (word in words) {
+            val wx = centerX(word)
+            val nearestColumn = anchors.entries.minByOrNull { abs(it.value - wx) }?.key ?: continue
+            buckets.getOrPut(nearestColumn) { mutableListOf() }.add(word)
+        }
+        return buckets
+    }
+
+    private fun orderedColumnText(words: List<OcrWord>, leftToRight: Boolean): String {
+        val lineHeight = words.map { it.bottom - it.top }.average().takeIf { it > 0 } ?: 20.0
+        return words
+            .groupBy { word -> (centerY(word) / lineHeight).toInt() }
+            .toSortedMap()
+            .values
+            .joinToString(" ") { lineWords ->
+                lineWords.sortedBy { if (leftToRight) it.left else -it.left }.joinToString(" ") { it.text }
+            }
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
 
     private fun displayName(rawEnglish: String): String {
         val rule = DrugKnowledgeBase.findRule(rawEnglish)
@@ -125,20 +194,13 @@ object TablePrescriptionParser {
         anchors["عنوان دارو"] ?: return null
 
         val items = mutableListOf<ParsedPrescriptionItem>()
-        for (row in rows.drop(headerRowIndex + 1)) {
-            if (row.size < 2) continue
+        for (recordWords in groupDataRecords(rows, headerRowIndex, anchors)) {
+            if (recordWords.size < 2) continue
 
-            val buckets = mutableMapOf<String, MutableList<OcrWord>>()
-            for (word in row) {
-                val wx = centerX(word)
-                val nearestColumn = anchors.entries.minByOrNull { abs(it.value - wx) }?.key ?: continue
-                buckets.getOrPut(nearestColumn) { mutableListOf() }.add(word)
-            }
+            val buckets = bucketByColumn(recordWords, anchors)
 
             fun colText(key: String, leftToRight: Boolean): String =
-                (buckets[key] ?: emptyList())
-                    .sortedBy { if (leftToRight) it.left else -it.left }
-                    .joinToString(" ") { it.text }
+                orderedColumnText(buckets[key] ?: emptyList(), leftToRight)
 
             // اسم دارو انگلیسیه (چپ‌به‌راست)؛ بقیه ستون‌ها فارسی‌ان (راست‌به‌چپ)
             val drugName = colText("عنوان دارو", leftToRight = true).trim()
