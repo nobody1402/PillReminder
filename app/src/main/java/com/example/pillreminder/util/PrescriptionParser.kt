@@ -9,7 +9,9 @@ data class ParsedPrescriptionItem(
     val quantity: Int?,
     val suggestedDoseAmount: Double,
     val suggestedTimesOfDay: List<LocalTime>,
-    val recognizedRule: DrugRuleSuggestion?
+    val recognizedRule: DrugRuleSuggestion?,
+    val suggestedTreatmentDurationDays: Int? = null,
+    val suggestedInventoryCount: Double? = quantity?.toDouble()
 )
 
 /**

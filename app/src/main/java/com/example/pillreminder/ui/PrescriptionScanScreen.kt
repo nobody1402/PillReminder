@@ -135,8 +135,8 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                     waitAfterMinutes = item.recognizedRule?.waitAfterMinutes ?: 0,
                     timesOfDay = item.suggestedTimesOfDay.sorted().joinToString(",") { TimeParseUtils.formatTime(it) },
                     startDateEpochDay = LocalDate.now().toEpochDay(),
-                    treatmentDurationDays = null,
-                    inventoryCount = null,
+                    treatmentDurationDays = item.suggestedTreatmentDurationDays,
+                    inventoryCount = item.suggestedInventoryCount,
                     lowStockThresholdDays = 3
                 )
                 repo.addOrUpdatePill(pill, allPills, emptyList())

@@ -178,6 +178,20 @@ object DrugKnowledgeBase {
         return null
     }
 
+    private fun hasPersianLetter(value: String): Boolean = value.any { it in 'آ'..'ی' }
+
+    /** نام فارسی داروی شناخته‌شده را برای نمایش کنار نام انگلیسی نسخه برمی‌گرداند. */
+    fun persianNameFor(pillName: String): String? {
+        val n = normalize(pillName)
+        if (n.isBlank()) return null
+        for ((keywords, _) in rules) {
+            if (keywords.any { n.contains(normalize(it)) }) {
+                return keywords.firstOrNull { hasPersianLetter(it) }
+            }
+        }
+        return null
+    }
+
     /** برای TTS: اگر اسم دارو در پایگاه دانش شناخته شده باشد، تلفظ صحیح انگلیسی آن را برمی‌گرداند */
     fun englishNameFor(pillName: String): String? = findRule(pillName)?.englishName
 }

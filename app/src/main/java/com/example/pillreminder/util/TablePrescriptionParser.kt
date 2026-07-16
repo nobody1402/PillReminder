@@ -96,26 +96,78 @@ object TablePrescriptionParser {
     private fun detectFoodRelation(methodText: String): FoodRelation {
         val n = norm(methodText)
         return when {
-            n.contains(norm("معده خالی")) || n.contains(norm("قبل از غذا")) -> FoodRelation.BEFORE_FOOD
-            n.contains(norm("همراه")) && n.contains(norm("غذا")) -> FoodRelation.WITH_FOOD
-            n.contains(norm("بعد از غذا")) -> FoodRelation.AFTER_FOOD
+            n.contains(norm("معده خالی")) || n.contains(norm("قبل از غذا")) || n.contains(norm("ناشتا")) -> FoodRelation.BEFORE_FOOD
+            (n.contains(norm("همراه")) || n.contains(norm("حین"))) && n.contains(norm("غذا")) -> FoodRelation.WITH_FOOD
+            n.contains(norm("بعد از غذا")) || n.contains(norm("پس از غذا")) -> FoodRelation.AFTER_FOOD
             else -> FoodRelation.NO_RELATION
         }
+    }
+
+    private fun numberFromPersianWord(text: String): Int? {
+        val n = norm(text)
+        return when {
+            Regex("""\b([1-9])\b""").find(TimeParseUtils.normalizeDigits(n)) != null ->
+                Regex("""\b([1-9])\b""").find(TimeParseUtils.normalizeDigits(n))!!.groupValues[1].toInt()
+            n.contains("یک") || n.contains("يك") -> 1
+            n.contains("دو") -> 2
+            n.contains("سه") -> 3
+            n.contains("چهار") -> 4
+            n.contains("پنج") -> 5
+            n.contains("شش") -> 6
+            else -> null
+        }
+    }
+
+    private fun timesEvery(intervalHours: Int, start: LocalTime = LocalTime.of(8, 0)): List<LocalTime> {
+        val count = (24 / intervalHours).coerceAtLeast(1)
+        return (0 until count).map { start.plusHours((it * intervalHours).toLong()) }
     }
 
     /** برمی‌گردونه: (ساعت‌های پیشنهادی, آیا نیاز به تنظیم دستی داره) */
     private fun detectTimes(timingText: String, doseText: String): Pair<List<LocalTime>, Boolean> {
         val n = norm("$timingText $doseText")
-        return when {
-            n.contains(norm("سه بار")) -> listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0)) to false
-            n.contains(norm("دو بار")) -> listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)) to false
-            n.contains(norm("یک بار در روز")) -> listOf(LocalTime.of(8, 0)) to false
-            n.contains("24 ساعت") || n.contains(norm("۲۴ ساعت")) -> listOf(LocalTime.of(9, 0)) to false
-            n.contains("12 ساعت") || n.contains(norm("۱۲ ساعت")) -> listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)) to false
-            n.contains("8 ساعت") || n.contains(norm("۸ ساعت")) -> listOf(LocalTime.of(8, 0), LocalTime.of(16, 0), LocalTime.of(0, 0)) to false
-            n.contains("6 ساعت") || n.contains(norm("۶ ساعت")) -> listOf(LocalTime.of(6, 0), LocalTime.of(12, 0), LocalTime.of(18, 0), LocalTime.of(0, 0)) to false
-            else -> listOf(LocalTime.of(9, 0)) to true // مثلا «طبق دستور» یا «هر دو هفته یک بار» — قابل بیان با آلارم روزانه نیست
+        val normalizedDigits = TimeParseUtils.normalizeDigits(n)
+        Regex("""هر\s*([0-9]+)\s*ساعت""").find(normalizedDigits)?.groupValues?.get(1)?.toIntOrNull()?.let { h ->
+            if (h in 1..24) return timesEvery(h) to false
         }
+        val dailyCount = when {
+            n.contains(norm("سه بار")) || n.contains(norm("روزی سه")) -> 3
+            n.contains(norm("دو بار")) || n.contains(norm("روزی دو")) -> 2
+            n.contains(norm("یک بار")) || n.contains(norm("روزی یک")) -> 1
+            else -> numberFromPersianWord(n.takeIf { it.contains("بار") || it.contains("روز") } ?: "")
+        }
+        return when (dailyCount) {
+            1 -> listOf(LocalTime.of(8, 0)) to false
+            2 -> timesEvery(12) to false
+            3 -> timesEvery(8) to false
+            4 -> timesEvery(6) to false
+            5, 6 -> timesEvery(24 / dailyCount) to false
+            else -> listOf(LocalTime.of(9, 0)) to true
+        }
+    }
+
+    private fun detectDoseAmount(doseText: String): Double {
+        val n = norm(doseText)
+        val d = TimeParseUtils.normalizeDigits(n)
+        Regex("""([0-9]+(?:\.[0-9]+)?)""").find(d)?.groupValues?.get(1)?.toDoubleOrNull()?.let { return it }
+        return when {
+            n.contains("نصف") || n.contains("1/2") -> 0.5
+            n.contains("ربع") || n.contains("چهارم") || n.contains("1/4") -> 0.25
+            n.contains("دو") -> 2.0
+            else -> 1.0
+        }
+    }
+
+    private fun displayName(rawEnglish: String): String {
+        val rule = DrugKnowledgeBase.findRule(rawEnglish)
+        val fa = DrugKnowledgeBase.persianNameFor(rawEnglish)
+        return if (rule != null && fa != null && !rawEnglish.contains(fa, ignoreCase = true)) "$fa (${rule.englishName})" else rawEnglish
+    }
+
+    private fun treatmentDays(quantity: Int?, doseAmount: Double, times: List<LocalTime>): Int? {
+        if (quantity == null || quantity <= 0 || doseAmount <= 0.0 || times.isEmpty()) return null
+        val dailyUse = doseAmount * times.size
+        return kotlin.math.ceil(quantity / dailyUse).toInt().coerceAtLeast(1)
     }
 
     /** آیا این مجموعه کلمات، شبیه فرمت جدولیِ سامانه نسخه الکترونیکه؟ (برای تصمیم "این پارسر رو امتحان کنم یا نه") */
@@ -134,7 +186,7 @@ object TablePrescriptionParser {
         if (headerScore(rows[headerRowIndex]) < 3) return null
 
         val anchors = detectColumnAnchors(rows[headerRowIndex]) ?: return null
-        val drugColumnX = anchors["عنوان دارو"] ?: return null
+        anchors["عنوان دارو"] ?: return null
 
         val items = mutableListOf<ParsedPrescriptionItem>()
         for (row in rows.drop(headerRowIndex + 1)) {
@@ -165,6 +217,10 @@ object TablePrescriptionParser {
 
             val foodRelation = detectFoodRelation(methodText)
             val (times, needsManual) = detectTimes(timingText, doseText)
+            val doseAmount = detectDoseAmount(doseText)
+            val rule = DrugKnowledgeBase.findRule(drugName)
+            val finalFoodRelation = if (foodRelation == FoodRelation.NO_RELATION) rule?.foodRelation ?: foodRelation else foodRelation
+            val durationDays = treatmentDays(quantity, doseAmount, times)
 
             val summaryParts = listOfNotNull(
                 doseText.takeIf { it.isNotBlank() },
@@ -180,15 +236,19 @@ object TablePrescriptionParser {
             items.add(
                 ParsedPrescriptionItem(
                     rawLine = summaryParts.joinToString(" | ").ifBlank { drugName },
-                    name = drugName,
+                    name = displayName(drugName),
                     formHint = null,
                     quantity = quantity,
-                    suggestedDoseAmount = 1.0,
+                    suggestedDoseAmount = doseAmount,
+                    suggestedTreatmentDurationDays = durationDays,
+                    suggestedInventoryCount = quantity?.toDouble(),
                     suggestedTimesOfDay = times,
                     recognizedRule = DrugRuleSuggestion(
-                        foodRelation = foodRelation,
-                        note = note,
-                        englishName = drugName
+                        foodRelation = finalFoodRelation,
+                        waitAfterMinutes = rule?.waitAfterMinutes ?: 0,
+                        fixedIntervalHours = rule?.fixedIntervalHours,
+                        note = listOfNotNull(note, rule?.note).joinToString("\n"),
+                        englishName = rule?.englishName ?: drugName
                     )
                 )
             )
