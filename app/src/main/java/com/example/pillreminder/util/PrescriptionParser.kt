@@ -6,111 +6,133 @@ import java.time.LocalTime
 data class ParsedPrescriptionItem(
     val rawLine: String,
     val name: String,
-    val formHint: String?, // مثلا "آمپول"، "شربت"، "سرم"، "قرص"
+    val formHint: String?,
     val quantity: Int?,
     val suggestedDoseAmount: Double,
     val suggestedTimesOfDay: List<LocalTime>,
     val recognizedRule: DrugRuleSuggestion?,
     val suggestedTreatmentDurationDays: Int? = null,
-    val suggestedInventoryCount: Double? = quantity?.toDouble()
-)
+    val suggestedInventoryCount: Double? = quantity?.toDouble(),
+    val strengthText: String? = null,
+    val usageInstructionText: String? = null,
+    val foodRelationText: String? = null
+) {
+    fun readableSummary(): String = listOf(
+        "نام دارو: $name",
+        "دوز: ${strengthText ?: UNKNOWN_TEXT}",
+        "فرم: ${formHint ?: UNKNOWN_TEXT}",
+        "تعداد: ${quantity?.toString() ?: UNKNOWN_TEXT}",
+        "دستور: ${usageInstructionText ?: UNKNOWN_TEXT}",
+        "همراه غذا: ${foodRelationText ?: foodText(recognizedRule?.foodRelation ?: FoodRelation.NO_RELATION)}"
+    ).joinToString("\n")
+
+    companion object {
+        private const val UNKNOWN_TEXT = "نامشخص"
+
+        fun foodText(relation: FoodRelation): String = when (relation) {
+            FoodRelation.WITH_FOOD -> "بله"
+            FoodRelation.BEFORE_FOOD -> "قبل غذا"
+            FoodRelation.AFTER_FOOD -> "بعد غذا"
+            FoodRelation.NO_RELATION -> "اطلاعی ثبت نشده"
+        }
+    }
+}
 
 /**
- * Generic OCR-text prescription parser for Iranian electronic prescription images.
+ * Offline, drug-agnostic prescription extraction pipeline.
  *
- * Architecture:
- * 1) Normalize OCR noise/digits/Arabic variants.
- * 2) Segment text into likely medication rows using row numbers, table separators and form words.
- * 3) Extract generic slots (form, dosage, quantity, frequency, duration, meal relation) from instruction text.
- * 4) Treat remaining non-instruction tokens as the medication name.
- *
- * DrugKnowledgeBase is intentionally used only for optional display/clinical hints after parsing; it is not required
- * to recognize a medication and no drug-specific parsing branches live here.
+ * The important architectural point is that Iranian e-prescription OCR is usually a table whose visual columns are
+ * emitted in mixed order. Therefore the fallback text parser does not assume one OCR line equals one medicine. It first
+ * identifies medicine-title lines by pharmaceutical structure (Latin/Persian title + strength/form tokens), then attaches
+ * neighboring non-title table cells as quantity/amount/frequency/food-route slots. No branch depends on a specific drug.
  */
 object PrescriptionParser {
 
-    fun parse(rawText: String): List<ParsedPrescriptionItem> = segmentRows(rawText).mapNotNull { parseRow(it) }.distinctBy {
-        PrescriptionLexicon.norm(it.name)
-    }
+    fun parse(rawText: String): List<ParsedPrescriptionItem> = parseMixedTableText(rawText).ifEmpty {
+        segmentRows(rawText).mapNotNull { parseLinearRow(it) }
+    }.distinctBy { PrescriptionLexicon.norm(it.name) }
 
-    private fun segmentRows(rawText: String): List<String> {
-        val normalized = rawText.lines()
-            .map { PrescriptionLexicon.norm(it) }
-            .filter { it.isNotBlank() }
-            .filterNot { isAdministrativeLine(it) }
-            .joinToString("\n")
+    private data class TextRecord(val title: String, val cells: List<String>)
+    private data class DrugTitleParts(val name: String, val strength: String?, val form: String?)
 
-        return normalized
-            .replace(Regex("(?m)(^|\\n)\\s*[0-9]{1,2}\\s*[.)–-]\\s*"), "\n§")
-            .split('\n', '§')
-            .map { it.trim(' ', '|', '،', ';') }
-            .filter { it.length >= 3 && looksLikeMedicationRow(it) }
-    }
-
-    private fun parseRow(row: String): ParsedPrescriptionItem? {
-        var working = row
-        val quantity = extractQuantity(working).also { result -> working = result.second }.first
-        val form = PrescriptionLexicon.findForm(working)
-        val instruction = PrescriptionInstructionParser.parse(working)
-        val name = extractName(working, form) ?: return null
-        val rule = DrugKnowledgeBase.findRule(name)
-        val finalFoodRelation = when {
-            instruction.foodRelation != FoodRelation.NO_RELATION -> instruction.foodRelation
-            else -> rule?.foodRelation ?: FoodRelation.NO_RELATION
+    private fun parseMixedTableText(rawText: String): List<ParsedPrescriptionItem> {
+        val lines = rawText.lines().map { PrescriptionLexicon.norm(it) }.filter { it.isNotBlank() }.filterNot { isAdministrativeLine(it) }
+        val titleIndexes = lines.indices.filter { looksLikeDrugTitle(lines[it]) }
+        if (titleIndexes.isEmpty()) return emptyList()
+        return titleIndexes.mapIndexedNotNull { idx, titleIndex ->
+            val previousTitle = titleIndexes.getOrNull(idx - 1) ?: -1
+            val cells = lines.subList(previousTitle + 1, titleIndex).filterNot { isRowNumber(it) || looksLikeDrugTitle(it) }
+            parseRecord(TextRecord(lines[titleIndex], cells))
         }
-        val duration = instruction.durationDays ?: PrescriptionInstructionParser.treatmentDaysFromInventory(quantity, instruction.doseAmount, instruction.times)
-        val noteParts = listOfNotNull(
-            instruction.note?.let { "طبق نسخه: $it" },
-            "مدت درمان: ${duration ?: "نامشخص"} روز".takeIf { duration != null },
-            "⚠️ زمان‌بندی نیاز به بازبینی دارد.".takeIf { instruction.needsManualTiming },
-            rule?.note
-        )
+    }
 
+    private fun parseRecord(record: TextRecord): ParsedPrescriptionItem? {
+        val title = splitDrugTitle(record.title) ?: return null
+        val quantity = record.cells.asReversed().firstNotNullOfOrNull { standaloneQuantity(it) }
+        val instructionCells = record.cells.filterNot { standaloneQuantity(it) != null }
+        val instruction = PrescriptionInstructionParser.parse(*instructionCells.toTypedArray())
+        val food = instruction.foodRelation
+        val usage = buildUsageText(instructionCells, instruction)
+        val rule = DrugKnowledgeBase.findRule(title.name)
+        val finalFood = if (food == FoodRelation.NO_RELATION) rule?.foodRelation ?: food else food
+        val duration = instruction.durationDays ?: PrescriptionInstructionParser.treatmentDaysFromInventory(quantity, instruction.doseAmount, instruction.times)
         return ParsedPrescriptionItem(
-            rawLine = row,
-            name = displayName(name, rule),
-            formHint = form,
+            rawLine = (record.cells + record.title).joinToString(" | "),
+            name = title.name,
+            formHint = PrescriptionLexicon.displayForm(title.form),
             quantity = quantity,
             suggestedDoseAmount = instruction.doseAmount,
             suggestedTimesOfDay = instruction.times,
             suggestedTreatmentDurationDays = duration,
             suggestedInventoryCount = quantity?.toDouble(),
+            strengthText = title.strength,
+            usageInstructionText = usage,
+            foodRelationText = ParsedPrescriptionItem.foodText(finalFood),
             recognizedRule = DrugRuleSuggestion(
-                foodRelation = finalFoodRelation,
+                foodRelation = finalFood,
                 waitAfterMinutes = rule?.waitAfterMinutes ?: 0,
                 fixedIntervalHours = instruction.fixedIntervalHours ?: rule?.fixedIntervalHours,
-                note = noteParts.joinToString("\n"),
-                englishName = rule?.englishName ?: name
+                note = "طبق نسخه: ${instructionCells.joinToString("، ")}".takeIf { instructionCells.isNotEmpty() } ?: rule?.note.orEmpty(),
+                englishName = rule?.englishName ?: title.name
             )
         )
     }
 
-    private fun extractQuantity(text: String): Pair<Int?, String> {
-        val match = Regex("(?:تعداد|عدد|qty|quantity)\\s*[:：]?\\s*([0-9]{1,4})").find(text)
-            ?: Regex("(?:^|\\s)([0-9]{1,4})\\s*(?:عدد|واحد)(?:\\s|$)").find(text)
-        val quantity = match?.groupValues?.get(1)?.toIntOrNull()
-        val cleaned = if (match != null) text.removeRange(match.range).trim() else text
-        return quantity to cleaned
+    private fun segmentRows(rawText: String): List<String> = rawText.lines().map { PrescriptionLexicon.norm(it) }.filter { it.isNotBlank() }.filterNot { isAdministrativeLine(it) }
+
+    private fun parseLinearRow(row: String): ParsedPrescriptionItem? = parseRecord(TextRecord(row, emptyList()))
+
+    private fun looksLikeDrugTitle(line: String): Boolean {
+        val hasForm = PrescriptionLexicon.findForm(line) != null
+        val hasDoseUnit = Regex("[0-9][0-9./\\s-]*(${PrescriptionLexicon.doseUnits.joinToString("|") { Regex.escape(PrescriptionLexicon.norm(it)) }})").containsMatchIn(line)
+        val hasLatin = Regex("[a-z]").containsMatchIn(line)
+        val notInstruction = PrescriptionInstructionParser.parse(line).foodRelation == FoodRelation.NO_RELATION && !listOf("هر", "روزی", "طبق دستور", "قبل", "بعد", "همراه", "عضلانی").any { line.contains(it) }
+        return (hasForm || hasDoseUnit) && (hasLatin || notInstruction)
     }
 
-    private fun extractName(text: String, form: String?): String? {
-        val beforeInstruction = text.split(Regex("\\b(?:هر|روزی|روزانه|صبح|ظهر|عصر|شب|قبل|بعد|همراه|ناشتا|به مدت|طبق دستور)\\b"), limit = 2).first()
-        val candidate = PrescriptionLexicon.stripNonNameInstruction(beforeInstruction.ifBlank { text })
-            .replace(Regex("\\b(?:تعداد|qty|quantity)\\b"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        return candidate.takeIf { it.length >= 2 && it != form }
+    private fun splitDrugTitle(line: String): DrugTitleParts? {
+        val form = PrescriptionLexicon.findForm(line)
+        val unitPattern = PrescriptionLexicon.doseUnits.joinToString("|") { Regex.escape(PrescriptionLexicon.norm(it)) } + "|\\[?u\\]?"
+        val strengthPattern = "[0-9]+(?:[./-][0-9]+)*(?:\\s*/\\s*[0-9]+)*\\s*(?:$unitPattern)(?:\\s*/\\s*[0-9]+\\s*(?:$unitPattern))*"
+        val strength = Regex(strengthPattern).find(line)?.value?.replace(Regex("\\s+"), " ")
+        var name = line
+        strength?.let { name = name.replace(it, " ") }
+        form?.let { name = name.replace(Regex("(^|\\s)${Regex.escape(PrescriptionLexicon.norm(it))}(\\s|$)"), " ") }
+        name = name.replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ").replace(Regex("[,،].*"), " ").replace(Regex("\\s+"), " ").trim(' ', '/', '-', ',')
+        return name.takeIf { it.length >= 2 }?.let { DrugTitleParts(it.uppercase(), strength, form) }
     }
 
-    private fun looksLikeMedicationRow(line: String): Boolean =
-        PrescriptionLexicon.findForm(line) != null ||
-            Regex("\\b[0-9]+\\s*(${PrescriptionLexicon.doseUnits.joinToString("|") { Regex.escape(PrescriptionLexicon.norm(it)) }})\\b").containsMatchIn(line) ||
-            listOf("هر", "روزی", "روزانه", "قبل غذا", "بعد غذا", "همراه غذا", "تعداد").any { line.contains(it) }
+    private fun standaloneQuantity(line: String): Int? = TimeParseUtils.normalizeDigits(line).let { n ->
+        Regex("^(?:تعداد\\s*)?([0-9]{1,4})(?:\\s*(?:عدد|واحد))?$").find(n)?.groupValues?.get(1)?.toIntOrNull()
+    }
+
+    private fun isRowNumber(line: String): Boolean = Regex("^[0-9]{1,2}[-.)]?$|^ردیف$").matches(TimeParseUtils.normalizeDigits(line))
+
+    private fun buildUsageText(cells: List<String>, instruction: PrescriptionInstruction): String? {
+        val doseCell = cells.firstOrNull { Regex("یک|دو|سه|نصف|ربع|[0-9]").containsMatchIn(it) && (it.contains("عدد") || it.contains("قرص") || it.contains("کپسول")) }
+        val freqCell = cells.firstOrNull { listOf("هر", "روزی", "روزانه", "بار", "طبق دستور").any(it::contains) }
+        return listOfNotNull(freqCell, doseCell).distinct().joinToString("، ").ifBlank { instruction.note }
+    }
 
     private fun isAdministrativeLine(line: String): Boolean = listOf("نام بیمار", "کد ملی", "پزشک", "بیمه", "تاریخ", "نسخه", "ردیف عنوان دارو").any { line.contains(it) }
-
-    private fun displayName(name: String, rule: DrugRuleSuggestion?): String {
-        val fa = DrugKnowledgeBase.persianNameFor(name)
-        return if (rule != null && fa != null && !name.contains(fa, ignoreCase = true)) "$fa (${rule.englishName})" else name
-    }
 }

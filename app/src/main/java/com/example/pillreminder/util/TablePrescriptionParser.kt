@@ -163,10 +163,25 @@ object TablePrescriptionParser {
             .trim()
     }
 
-    private fun displayName(rawEnglish: String): String {
-        val rule = DrugKnowledgeBase.findRule(rawEnglish)
-        val fa = DrugKnowledgeBase.persianNameFor(rawEnglish)
-        return if (rule != null && fa != null && !rawEnglish.contains(fa, ignoreCase = true)) "$fa (${rule.englishName})" else rawEnglish
+    private data class TitleParts(val name: String, val strength: String?, val form: String?)
+
+    private fun splitDrugTitle(rawTitle: String): TitleParts {
+        val normalized = PrescriptionLexicon.norm(rawTitle)
+        val form = PrescriptionLexicon.findForm(normalized)
+        val unitPattern = PrescriptionLexicon.doseUnits.joinToString("|") { Regex.escape(PrescriptionLexicon.norm(it)) } + "|\\[?u\\]?"
+        val strength = Regex("[0-9]+(?:[./-][0-9]+)*(?:\\s*/\\s*[0-9]+)*\\s*(?:$unitPattern)(?:\\s*/\\s*[0-9]+\\s*(?:$unitPattern))*")
+            .find(normalized)
+            ?.value
+            ?.replace(Regex("\\s+"), " ")
+        var name = normalized
+        strength?.let { name = name.replace(it, " ") }
+        form?.let { name = name.replace(Regex("(^|\\s)${Regex.escape(PrescriptionLexicon.norm(it))}(\\s|$)"), " ") }
+        name = name.replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ")
+            .replace(Regex("[,،].*"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim(' ', '/', '-', ',')
+            .uppercase()
+        return TitleParts(name.ifBlank { rawTitle.trim() }, strength, form)
     }
 
     private fun treatmentDays(quantity: Int?, doseAmount: Double, times: List<LocalTime>): Int? {
@@ -203,8 +218,10 @@ object TablePrescriptionParser {
                 orderedColumnText(buckets[key] ?: emptyList(), leftToRight)
 
             // اسم دارو انگلیسیه (چپ‌به‌راست)؛ بقیه ستون‌ها فارسی‌ان (راست‌به‌چپ)
-            val drugName = colText("عنوان دارو", leftToRight = true).trim()
-            if (drugName.isBlank() || drugName.length < 2) continue
+            val drugTitle = colText("عنوان دارو", leftToRight = true).trim()
+            if (drugTitle.isBlank() || drugTitle.length < 2) continue
+            val titleParts = splitDrugTitle(drugTitle)
+            val drugName = titleParts.name
 
             val quantityText = colText("تعداد", leftToRight = true)
             val quantity = TimeParseUtils.normalizeDigits(quantityText).filter { it.isDigit() }.toIntOrNull()
@@ -236,13 +253,16 @@ object TablePrescriptionParser {
             items.add(
                 ParsedPrescriptionItem(
                     rawLine = summaryParts.joinToString(" | ").ifBlank { drugName },
-                    name = displayName(drugName),
-                    formHint = null,
+                    name = drugName,
+                    formHint = PrescriptionLexicon.displayForm(titleParts.form),
                     quantity = quantity,
                     suggestedDoseAmount = doseAmount,
                     suggestedTreatmentDurationDays = durationDays,
                     suggestedInventoryCount = quantity?.toDouble(),
                     suggestedTimesOfDay = times,
+                    strengthText = titleParts.strength,
+                    usageInstructionText = summaryParts.joinToString("، ").ifBlank { null },
+                    foodRelationText = ParsedPrescriptionItem.foodText(finalFoodRelation),
                     recognizedRule = DrugRuleSuggestion(
                         foodRelation = finalFoodRelation,
                         waitAfterMinutes = rule?.waitAfterMinutes ?: 0,
