@@ -1,5 +1,6 @@
 package com.example.pillreminder.util
 
+import com.example.pillreminder.data.FoodRelation
 import java.time.LocalTime
 
 data class ParsedPrescriptionItem(
@@ -15,143 +16,101 @@ data class ParsedPrescriptionItem(
 )
 
 /**
- * متن خام OCR شده از روی عکس نسخه رو به یک لیست از «پیش‌نویس» داروهای قابل‌تشخیص تبدیل
- * می‌کند. اگر ساعت یا الگوی مصرف مثل «هر ۸ ساعت»، «صبح و شب» یا «08:00» در متن باشد
- * همان‌ها به ساعت‌های پیشنهادی آلارم تبدیل می‌شوند؛ در غیر این صورت یک پیش‌فرض امن بر اساس
- * شکل دارویی/قانون دارو ساخته می‌شود و کاربر هنوز می‌تواند قبل از ذخیره آن را بازبینی کند.
+ * Generic OCR-text prescription parser for Iranian electronic prescription images.
+ *
+ * Architecture:
+ * 1) Normalize OCR noise/digits/Arabic variants.
+ * 2) Segment text into likely medication rows using row numbers, table separators and form words.
+ * 3) Extract generic slots (form, dosage, quantity, frequency, duration, meal relation) from instruction text.
+ * 4) Treat remaining non-instruction tokens as the medication name.
+ *
+ * DrugKnowledgeBase is intentionally used only for optional display/clinical hints after parsing; it is not required
+ * to recognize a medication and no drug-specific parsing branches live here.
  */
 object PrescriptionParser {
 
-    private val formWords = listOf("آمپول", "شربت", "سرم", "قرص", "کپسول", "پماد", "قطره", "اسپری", "شیاف")
-
-    // پیش‌فرض معقول وقتی هیچ قانونی برای دارو شناخته نشد
-    private val defaultTimesForForm: Map<String, List<LocalTime>> = mapOf(
-        "شربت" to listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0)),
-        "قرص" to listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-        "کپسول" to listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-        "آمپول" to listOf(LocalTime.of(9, 0)),
-        "سرم" to listOf(LocalTime.of(9, 0)),
-        "پماد" to listOf(LocalTime.of(9, 0), LocalTime.of(21, 0)),
-        "قطره" to listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0)),
-        "اسپری" to listOf(LocalTime.of(8, 0), LocalTime.of(20, 0)),
-        "شیاف" to listOf(LocalTime.of(21, 0))
-    )
-
-    fun parse(rawText: String): List<ParsedPrescriptionItem> {
-        val lines = rawText
-            .split("\n")
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-
-        return lines.mapNotNull { parseLine(it) }
+    fun parse(rawText: String): List<ParsedPrescriptionItem> = segmentRows(rawText).mapNotNull { parseRow(it) }.distinctBy {
+        PrescriptionLexicon.norm(it.name)
     }
 
-    private fun parseLine(originalLine: String): ParsedPrescriptionItem? {
-        var line = originalLine
-            // حذف شماره‌گذاری ابتدای خط، مثل «۱-» یا «2.»
-            .replace(Regex("^[\\d۰-۹]+[\\-.\\)]\\s*"), "")
-            .trim()
-        if (line.length < 2) return null
+    private fun segmentRows(rawText: String): List<String> {
+        val normalized = rawText.lines()
+            .map { PrescriptionLexicon.norm(it) }
+            .filter { it.isNotBlank() }
+            .filterNot { isAdministrativeLine(it) }
+            .joinToString("\n")
 
-        // استخراج تعداد از روی کلمه «تعداد» — همراه با کلمه‌ی واحدِ بعدش («عدد»/«واحد») که نباید توی اسم بمونه
-        val qtyMatch = Regex("تعداد\\s*([\\d۰-۹]+)\\s*(عدد|واحد)?").find(line)
-        val quantity = qtyMatch?.groupValues?.get(1)?.let {
-            TimeParseUtils.normalizeDigits(it).toIntOrNull()
+        return normalized
+            .replace(Regex("(?m)(^|\\n)\\s*[0-9]{1,2}\\s*[.)–-]\\s*"), "\n§")
+            .split('\n', '§')
+            .map { it.trim(' ', '|', '،', ';') }
+            .filter { it.length >= 3 && looksLikeMedicationRow(it) }
+    }
+
+    private fun parseRow(row: String): ParsedPrescriptionItem? {
+        var working = row
+        val quantity = extractQuantity(working).also { result -> working = result.second }.first
+        val form = PrescriptionLexicon.findForm(working)
+        val instruction = PrescriptionInstructionParser.parse(working)
+        val name = extractName(working, form) ?: return null
+        val rule = DrugKnowledgeBase.findRule(name)
+        val finalFoodRelation = when {
+            instruction.foodRelation != FoodRelation.NO_RELATION -> instruction.foodRelation
+            else -> rule?.foodRelation ?: FoodRelation.NO_RELATION
         }
-        if (qtyMatch != null) line = line.removeRange(qtyMatch.range).trim()
-
-        // استخراج اسم جایگزین داخل پرانتز، مثلا «(استامینوفن)»
-        val parenMatch = Regex("\\(([^)]+)\\)").find(line)
-        val altName = parenMatch?.groupValues?.get(1)?.trim()
-        if (parenMatch != null) line = line.removeRange(parenMatch.range).trim()
-
-        // تشخیص نوع فرآورده (شکل دارویی) از ابتدای خط
-        val formHint = formWords.firstOrNull { line.startsWith(it) }
-        if (formHint != null) line = line.removePrefix(formHint).trim()
-
-        // حذف اعداد/واحدهای دوز باقی‌مانده (مثل "۵۰۰ میلی گرم"، "۱/۳ – ۲/۳ نیم لیتری"، "۶۴۳"، یا کلمه‌ی تنهای "عدد")
-        val cleanedName = line
-            .replace(Regex("[\\d۰-۹/.\\-–]+"), " ")
-            .replace(Regex("میلی\\s*گرم|میلی\\s*لیتر|گرم|لیتری|نیم|cc|mg|ml|عدد|واحد"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-        // اولویت با اسم داخل پرانتز (معمولا اسم ژنریک و قابل‌تشخیص‌تره)، بعد اسم اصلی خط
-        val bestName = when {
-            cleanedName.isNotBlank() && DrugKnowledgeBase.findRule(cleanedName) != null -> cleanedName
-            !altName.isNullOrBlank() && DrugKnowledgeBase.findRule(altName) != null -> altName
-            cleanedName.isNotBlank() -> cleanedName
-            !altName.isNullOrBlank() -> altName
-            else -> return null
-        }
-        if (bestName.isBlank()) return null
-
-        val rule = DrugKnowledgeBase.findRule(bestName) ?: altName?.let { DrugKnowledgeBase.findRule(it) }
-
-        val explicitTimes = detectTimesFromInstruction(originalLine)
-        val suggestedTimes = when {
-            explicitTimes.isNotEmpty() -> explicitTimes
-            rule?.fixedIntervalHours != null -> buildFixedIntervalTimes(rule.fixedIntervalHours)
-            formHint != null -> defaultTimesForForm[formHint] ?: listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
-            else -> listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
-        }
+        val duration = instruction.durationDays ?: PrescriptionInstructionParser.treatmentDaysFromInventory(quantity, instruction.doseAmount, instruction.times)
+        val noteParts = listOfNotNull(
+            instruction.note?.let { "طبق نسخه: $it" },
+            "مدت درمان: ${duration ?: "نامشخص"} روز".takeIf { duration != null },
+            "⚠️ زمان‌بندی نیاز به بازبینی دارد.".takeIf { instruction.needsManualTiming },
+            rule?.note
+        )
 
         return ParsedPrescriptionItem(
-            rawLine = originalLine,
-            name = bestName,
-            formHint = formHint,
+            rawLine = row,
+            name = displayName(name, rule),
+            formHint = form,
             quantity = quantity,
-            suggestedDoseAmount = 1.0,
-            suggestedTimesOfDay = suggestedTimes,
-            recognizedRule = rule
+            suggestedDoseAmount = instruction.doseAmount,
+            suggestedTimesOfDay = instruction.times,
+            suggestedTreatmentDurationDays = duration,
+            suggestedInventoryCount = quantity?.toDouble(),
+            recognizedRule = DrugRuleSuggestion(
+                foodRelation = finalFoodRelation,
+                waitAfterMinutes = rule?.waitAfterMinutes ?: 0,
+                fixedIntervalHours = instruction.fixedIntervalHours ?: rule?.fixedIntervalHours,
+                note = noteParts.joinToString("\n"),
+                englishName = rule?.englishName ?: name
+            )
         )
     }
 
-    /**
-     * تلاش می‌کند دستور مصرف نوشته‌شده روی نسخه را به ساعت‌های آلارم تبدیل کند؛
-     * مثال‌ها: «هر ۸ ساعت»، «روزی سه بار»، «صبح و شب»، یا «08:00 و 20:30».
-     */
-    private fun detectTimesFromInstruction(text: String): List<LocalTime> {
-        val normalized = TimeParseUtils.normalizeDigits(text)
-            .lowercase()
-            .replace("ي", "ی")
-            .replace("ك", "ک")
-
-        val explicitClockTimes = Regex("(?<!\\d)([01]?\\d|2[0-3])\\s*[:：]\\s*([0-5]?\\d)(?!\\d)")
-            .findAll(normalized)
-            .mapNotNull { TimeParseUtils.safeParse("${it.groupValues[1]}:${it.groupValues[2]}") }
-            .toList()
-        if (explicitClockTimes.isNotEmpty()) return explicitClockTimes.distinct().sorted()
-
-        Regex("هر\\s*([0-9]{1,2})\\s*ساعت").find(normalized)?.groupValues?.get(1)?.toIntOrNull()?.let { interval ->
-            return buildFixedIntervalTimes(interval)
-        }
-
-        return when {
-            normalized.contains("سه بار") || normalized.contains("3 بار") || normalized.contains("روزی سه") ->
-                listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0))
-            normalized.contains("دو بار") || normalized.contains("2 بار") || normalized.contains("روزی دو") ->
-                listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
-            normalized.contains("یک بار") || normalized.contains("1 بار") || normalized.contains("روزی یک") ->
-                listOf(LocalTime.of(9, 0))
-            normalized.contains("صبح") && normalized.contains("ظهر") && normalized.contains("شب") ->
-                listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0))
-            normalized.contains("صبح") && normalized.contains("شب") ->
-                listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
-            normalized.contains("صبح") -> listOf(LocalTime.of(8, 0))
-            normalized.contains("ظهر") -> listOf(LocalTime.of(14, 0))
-            normalized.contains("شب") -> listOf(LocalTime.of(20, 0))
-            else -> emptyList()
-        }
+    private fun extractQuantity(text: String): Pair<Int?, String> {
+        val match = Regex("(?:تعداد|عدد|qty|quantity)\\s*[:：]?\\s*([0-9]{1,4})").find(text)
+            ?: Regex("(?:^|\\s)([0-9]{1,4})\\s*(?:عدد|واحد)(?:\\s|$)").find(text)
+        val quantity = match?.groupValues?.get(1)?.toIntOrNull()
+        val cleaned = if (match != null) text.removeRange(match.range).trim() else text
+        return quantity to cleaned
     }
 
-    private fun buildFixedIntervalTimes(intervalHours: Int): List<LocalTime> {
-        if (intervalHours <= 0) return listOf(LocalTime.of(8, 0))
-        val startMinutes = 8 * 60 // شروع پیش‌فرض از ۸ صبح؛ کاربر می‌تواند در فرم تغییر دهد
-        val numTimes = (24 / intervalHours).coerceAtLeast(1)
-        return (0 until numTimes).map { i ->
-            val m = (startMinutes + i * intervalHours * 60) % 1440
-            LocalTime.of(m / 60, m % 60)
-        }.distinct().sorted()
+    private fun extractName(text: String, form: String?): String? {
+        val beforeInstruction = text.split(Regex("\\b(?:هر|روزی|روزانه|صبح|ظهر|عصر|شب|قبل|بعد|همراه|ناشتا|به مدت|طبق دستور)\\b"), limit = 2).first()
+        val candidate = PrescriptionLexicon.stripNonNameInstruction(beforeInstruction.ifBlank { text })
+            .replace(Regex("\\b(?:تعداد|qty|quantity)\\b"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return candidate.takeIf { it.length >= 2 && it != form }
+    }
+
+    private fun looksLikeMedicationRow(line: String): Boolean =
+        PrescriptionLexicon.findForm(line) != null ||
+            Regex("\\b[0-9]+\\s*(${PrescriptionLexicon.doseUnits.joinToString("|") { Regex.escape(PrescriptionLexicon.norm(it)) }})\\b").containsMatchIn(line) ||
+            listOf("هر", "روزی", "روزانه", "قبل غذا", "بعد غذا", "همراه غذا", "تعداد").any { line.contains(it) }
+
+    private fun isAdministrativeLine(line: String): Boolean = listOf("نام بیمار", "کد ملی", "پزشک", "بیمه", "تاریخ", "نسخه", "ردیف عنوان دارو").any { line.contains(it) }
+
+    private fun displayName(name: String, rule: DrugRuleSuggestion?): String {
+        val fa = DrugKnowledgeBase.persianNameFor(name)
+        return if (rule != null && fa != null && !name.contains(fa, ignoreCase = true)) "$fa (${rule.englishName})" else name
     }
 }
