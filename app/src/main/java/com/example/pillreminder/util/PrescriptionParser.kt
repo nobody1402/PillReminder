@@ -14,9 +14,9 @@ data class ParsedPrescriptionItem(
 
 /**
  * متن خام OCR شده از روی عکس نسخه رو به یک لیست از «پیش‌نویس» داروهای قابل‌تشخیص تبدیل
- * می‌کند. چون نسخه‌های واقعی معمولاً فقط اسم دارو + تعداد رو دارن (نه لزوماً ساعت دقیق
- * مصرف)، این فقط یک پیش‌نویس هوشمند می‌سازه که کاربر قبل از ذخیره نهایی باید بازبینی کنه؛
- * هیچ آلارمی بدون تایید نهایی کاربر در فرم افزودن دارو ذخیره نمی‌شود.
+ * می‌کند. اگر ساعت یا الگوی مصرف مثل «هر ۸ ساعت»، «صبح و شب» یا «08:00» در متن باشد
+ * همان‌ها به ساعت‌های پیشنهادی آلارم تبدیل می‌شوند؛ در غیر این صورت یک پیش‌فرض امن بر اساس
+ * شکل دارویی/قانون دارو ساخته می‌شود و کاربر هنوز می‌تواند قبل از ذخیره آن را بازبینی کند.
  */
 object PrescriptionParser {
 
@@ -86,7 +86,9 @@ object PrescriptionParser {
 
         val rule = DrugKnowledgeBase.findRule(bestName) ?: altName?.let { DrugKnowledgeBase.findRule(it) }
 
+        val explicitTimes = detectTimesFromInstruction(originalLine)
         val suggestedTimes = when {
+            explicitTimes.isNotEmpty() -> explicitTimes
             rule?.fixedIntervalHours != null -> buildFixedIntervalTimes(rule.fixedIntervalHours)
             formHint != null -> defaultTimesForForm[formHint] ?: listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
             else -> listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
@@ -101,6 +103,44 @@ object PrescriptionParser {
             suggestedTimesOfDay = suggestedTimes,
             recognizedRule = rule
         )
+    }
+
+    /**
+     * تلاش می‌کند دستور مصرف نوشته‌شده روی نسخه را به ساعت‌های آلارم تبدیل کند؛
+     * مثال‌ها: «هر ۸ ساعت»، «روزی سه بار»، «صبح و شب»، یا «08:00 و 20:30».
+     */
+    private fun detectTimesFromInstruction(text: String): List<LocalTime> {
+        val normalized = TimeParseUtils.normalizeDigits(text)
+            .lowercase()
+            .replace("ي", "ی")
+            .replace("ك", "ک")
+
+        val explicitClockTimes = Regex("(?<!\\d)([01]?\\d|2[0-3])\\s*[:：]\\s*([0-5]?\\d)(?!\\d)")
+            .findAll(normalized)
+            .mapNotNull { TimeParseUtils.safeParse("${it.groupValues[1]}:${it.groupValues[2]}") }
+            .toList()
+        if (explicitClockTimes.isNotEmpty()) return explicitClockTimes.distinct().sorted()
+
+        Regex("هر\\s*([0-9]{1,2})\\s*ساعت").find(normalized)?.groupValues?.get(1)?.toIntOrNull()?.let { interval ->
+            return buildFixedIntervalTimes(interval)
+        }
+
+        return when {
+            normalized.contains("سه بار") || normalized.contains("3 بار") || normalized.contains("روزی سه") ->
+                listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0))
+            normalized.contains("دو بار") || normalized.contains("2 بار") || normalized.contains("روزی دو") ->
+                listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
+            normalized.contains("یک بار") || normalized.contains("1 بار") || normalized.contains("روزی یک") ->
+                listOf(LocalTime.of(9, 0))
+            normalized.contains("صبح") && normalized.contains("ظهر") && normalized.contains("شب") ->
+                listOf(LocalTime.of(8, 0), LocalTime.of(14, 0), LocalTime.of(20, 0))
+            normalized.contains("صبح") && normalized.contains("شب") ->
+                listOf(LocalTime.of(8, 0), LocalTime.of(20, 0))
+            normalized.contains("صبح") -> listOf(LocalTime.of(8, 0))
+            normalized.contains("ظهر") -> listOf(LocalTime.of(14, 0))
+            normalized.contains("شب") -> listOf(LocalTime.of(20, 0))
+            else -> emptyList()
+        }
     }
 
     private fun buildFixedIntervalTimes(intervalHours: Int): List<LocalTime> {
