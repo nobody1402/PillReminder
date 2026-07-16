@@ -36,20 +36,23 @@ object PrescriptionLexicon {
         return formWords.firstOrNull { Regex("(^|\\s)${Regex.escape(norm(it))}(\\s|$)").containsMatchIn(n) }
     }
 
-    fun displayForm(form: String?): String? = when (norm(form ?: return null)) {
-        "tablet", "tab", "قرص" -> "قرص"
-        "capsule", "cap", "کپسول" -> "کپسول"
-        "syrup", "شربت" -> "شربت"
-        "drop", "قطره" -> "قطره"
-        "spray", "اسپری" -> "اسپری"
-        "ampoule", "amp", "آمپول" -> "آمپول"
-        "vial", "ویال" -> "ویال"
-        "ointment", "پماد" -> "پماد"
-        "cream", "کرم" -> "کرم"
-        "suppository", "شیاف" -> "شیاف"
-        "solution", "محلول" -> "محلول"
-        "sachet", "ساشه" -> "ساشه"
-        else -> form
+    fun displayForm(form: String?): String? {
+        if (form == null) return null
+        return when (norm(form)) {
+            "tablet", "tab", "قرص" -> "قرص"
+            "capsule", "cap", "کپسول" -> "کپسول"
+            "syrup", "شربت" -> "شربت"
+            "drop", "قطره" -> "قطره"
+            "spray", "اسپری" -> "اسپری"
+            "ampoule", "amp", "آمپول" -> "آمپول"
+            "vial", "ویال" -> "ویال"
+            "ointment", "پماد" -> "پماد"
+            "cream", "کرم" -> "کرم"
+            "suppository", "شیاف" -> "شیاف"
+            "solution", "محلول" -> "محلول"
+            "sachet", "ساشه" -> "ساشه"
+            else -> form
+        }
     }
 
     fun stripNonNameInstruction(text: String): String {
