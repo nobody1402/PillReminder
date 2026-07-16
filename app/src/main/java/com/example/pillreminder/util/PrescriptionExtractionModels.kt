@@ -18,7 +18,7 @@ object PrescriptionLexicon {
         "قطره", "پاف", "قاشق", "سی سی", "درصد", "mg", "mcg", "g", "ml", "cc", "iu", "%"
     )
 
-    private val routeWords = listOf("خوراکی", "تزریقی", "موضعی", "چشمی", "گوشی", "بینی", "استنشاقی", "واژینال", "رکتال")
+    val routeWords = listOf("خوراکی", "تزریقی", "موضعی", "چشمی", "گوشی", "بینی", "استنشاقی", "واژینال", "رکتال")
     private val adminWords = listOf("مصرف", "شود", "گردد", "میل", "تزریق", "چکانده", "استعمال", "مالیده", "هر", "روزی", "روزانه", "بار")
 
     fun norm(value: String): String = TimeParseUtils.normalizeDigits(value)
@@ -63,15 +63,51 @@ object PrescriptionLexicon {
     }
 }
 
+/** Structured instruction details extracted independently of drug identity. */
 data class PrescriptionInstruction(
     val doseAmount: Double = 1.0,
     val dosageText: String? = null,
+    val doseUnitText: String? = null,
+    val frequencyText: String? = null,
     val times: List<LocalTime> = emptyList(),
     val fixedIntervalHours: Int? = null,
     val durationDays: Int? = null,
     val foodRelation: FoodRelation = FoodRelation.NO_RELATION,
+    val routeText: String? = null,
     val needsManualTiming: Boolean = false,
     val note: String? = null
+)
+
+/**
+ * Complete, normalized prescription row used by structured extraction flows.
+ *
+ * Keep this separate from [ParsedPrescriptionItem] so the OCR/table architecture can preserve all source fields before
+ * the UI maps them to reminder suggestions.
+ */
+data class StructuredPrescriptionItem(
+    val rawLine: String,
+    val name: String,
+    val formHint: String?,
+    val strengthText: String?,
+    val quantity: Int?,
+    val dosageText: String?,
+    val doseAmount: Double,
+    val doseUnitText: String?,
+    val frequencyText: String?,
+    val times: List<LocalTime>,
+    val fixedIntervalHours: Int?,
+    val durationDays: Int?,
+    val foodRelation: FoodRelation,
+    val routeText: String?,
+    val usageInstructionText: String?,
+    val needsManualTiming: Boolean,
+    val note: String?
+)
+
+/** Top-level structured extraction result, including raw OCR text for traceability. */
+data class StructuredPrescriptionExtraction(
+    val rawText: String,
+    val items: List<StructuredPrescriptionItem>
 )
 
 /** Parses dosage, frequency, duration and meal relation without looking at the drug identity. */
@@ -80,7 +116,8 @@ object PrescriptionInstructionParser {
         val original = parts.filter { it.isNotBlank() }.joinToString(" ")
         val n = PrescriptionLexicon.norm(original)
         val dose = detectDose(n)
-        val interval = Regex("هر\\s*([0-9]{1,2})\\s*ساعت").find(n)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 1..24 }
+        val intervalMatch = Regex("هر\\s*([0-9]{1,2})\\s*ساعت").find(n)
+        val interval = intervalMatch?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 1..24 }
         val dailyCount = interval?.let { 24 / it } ?: detectDailyCount(n)
         val times = when {
             hasClockTimes(n) -> clockTimes(n)
@@ -91,12 +128,15 @@ object PrescriptionInstructionParser {
         }
         val manual = n.contains("طبق دستور") || n.contains("در صورت نیاز") || n.contains("هفته") || (times.isEmpty() && n.isNotBlank())
         return PrescriptionInstruction(
-            doseAmount = dose.first,
-            dosageText = dose.second,
+            doseAmount = dose.amount,
+            dosageText = dose.text,
+            doseUnitText = dose.unit,
+            frequencyText = intervalMatch?.value ?: detectFrequencyText(n),
             times = times.ifEmpty { listOf(LocalTime.of(9, 0)) },
             fixedIntervalHours = interval,
             durationDays = detectDurationDays(n),
             foodRelation = detectFoodRelation(n),
+            routeText = detectRoute(n),
             needsManualTiming = manual,
             note = original.takeIf { it.isNotBlank() }
         )
@@ -107,7 +147,9 @@ object PrescriptionInstructionParser {
         return ceil(quantity / (doseAmount * times.size)).toInt().coerceAtLeast(1)
     }
 
-    private fun detectDose(n: String): Pair<Double, String?> {
+    private data class DetectedDose(val amount: Double, val text: String?, val unit: String?)
+
+    private fun detectDose(n: String): DetectedDose {
         val fractional = when {
             n.contains("نصف") || n.contains("1/2") -> 0.5
             n.contains("ربع") || n.contains("1/4") -> 0.25
@@ -119,7 +161,8 @@ object PrescriptionInstructionParser {
             if (token.contains('/')) token.split('/').let { it[0].toDoubleOrNull()?.div(it[1].toDoubleOrNull() ?: 1.0) } else token.toDoubleOrNull()
         }
         val value = fractional ?: numeric ?: 1.0
-        return value to amount?.value
+        val unit = amount?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() }
+        return DetectedDose(value, amount?.value, unit)
     }
 
     private fun detectDailyCount(n: String): Int? = when {
@@ -130,10 +173,14 @@ object PrescriptionInstructionParser {
         else -> Regex("(?:روزی|روزانه)\\s*([1-6])\\s*بار?").find(n)?.groupValues?.get(1)?.toIntOrNull()
     }
 
+    private fun detectFrequencyText(n: String): String? = Regex("(?:روزی|روزانه)\\s*(?:[1-6]|یک|دو|سه|چهار|پنج|شش)\\s*بار?").find(n)?.value
+
     private fun detectDurationDays(n: String): Int? = Regex("(?:به مدت|مدت|تا)\\s*([0-9]{1,3})\\s*(روز|هفته|ماه)").find(n)?.let {
         val count = it.groupValues[1].toIntOrNull() ?: return@let null
         when (it.groupValues[2]) { "هفته" -> count * 7; "ماه" -> count * 30; else -> count }
     }
+
+    private fun detectRoute(n: String): String? = PrescriptionLexicon.routeWords.firstOrNull { n.contains(PrescriptionLexicon.norm(it)) }
 
     private fun detectFoodRelation(n: String): FoodRelation = when {
         n.contains("معده خالی") || n.contains("ناشتا") || n.contains("قبل غذا") || n.contains("قبل از غذا") -> FoodRelation.BEFORE_FOOD
