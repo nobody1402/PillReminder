@@ -53,12 +53,18 @@ private fun createCameraOutputUri(context: Context): Uri {
     return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
 
+private fun analyzePrescription(): List<ParsedPrescriptionItem> {
+    val tableResult = TablePrescriptionParser.parse(PrescriptionScanState.ocrWords)
+    return tableResult ?: PrescriptionParser.parse(PrescriptionScanState.ocrText)
+}
+
 @Composable
 fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var cameraTargetUri by remember { mutableStateOf<Uri?>(null) }
+    var saveMessage by remember { mutableStateOf<String?>(null) }
 
     fun runOcr(bitmap: Bitmap) {
         PrescriptionScanState.isProcessing = true
@@ -70,6 +76,11 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 is PrescriptionOcrEngine.OcrResult.Success -> {
                     PrescriptionScanState.ocrText = result.text
                     PrescriptionScanState.ocrWords = result.words
+                    PrescriptionScanState.parsedItems = analyzePrescription()
+                    PrescriptionScanState.addedItemIndices = emptySet()
+                    if (PrescriptionScanState.parsedItems.isEmpty()) {
+                        PrescriptionScanState.errorMessage = "متن نسخه خوانده شد، اما دارویی قابل استخراج نبود. متن را اصلاح کن و دوباره تحلیل را بزن."
+                    }
                 }
                 is PrescriptionOcrEngine.OcrResult.MissingLanguageData -> {
                     PrescriptionScanState.errorMessage = result.message
@@ -84,6 +95,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
 
     fun onImagePicked(uri: Uri?) {
         if (uri == null) return
+        saveMessage = null
         val bmp = uriToBitmap(context, uri)
         PrescriptionScanState.imageBitmap = bmp
         PrescriptionScanState.ocrText = ""
@@ -142,6 +154,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 repo.addOrUpdatePill(pill, allPills, emptyList())
                 PrescriptionScanState.addedItemIndices = PrescriptionScanState.addedItemIndices + index
             }
+            saveMessage = "${itemsToAdd.size} دارو ذخیره شد و آلارم‌ها ساخته شدند."
         }
     }
 
@@ -165,6 +178,13 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = { onCameraButtonClick() }, modifier = Modifier.weight(1f)) {
                     Text("📷 گرفتن عکس")
+                }
+            }
+
+            saveMessage?.let { msg ->
+                Spacer(Modifier.height(12.dp))
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    Text(msg, modifier = Modifier.padding(12.dp), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
 
@@ -209,8 +229,7 @@ fun PrescriptionScanScreen(nav: NavHostController, repo: PillRepository) {
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        val tableResult = TablePrescriptionParser.parse(PrescriptionScanState.ocrWords)
-                        PrescriptionScanState.parsedItems = tableResult ?: PrescriptionParser.parse(PrescriptionScanState.ocrText)
+                        PrescriptionScanState.parsedItems = analyzePrescription()
                         PrescriptionScanState.addedItemIndices = emptySet()
                     },
                     modifier = Modifier.fillMaxWidth()
